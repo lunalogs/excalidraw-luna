@@ -61,6 +61,7 @@ import {
   parseLibraryTokensFromUrl,
   useHandleLibrary,
 } from "@excalidraw/excalidraw/data/library";
+import type { Session } from "@supabase/supabase-js";
 
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 import type { RestoredDataState } from "@excalidraw/excalidraw/data/restore";
@@ -101,6 +102,7 @@ import Collab, {
 } from "./collab/Collab";
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
+import { AuthUserControl } from "./components/AuthUserControl";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
 import {
   ExportToExcalidrawPlus,
@@ -147,6 +149,12 @@ import "./index.scss";
 
 import { ExcalidrawPlusPromoBanner } from "./components/ExcalidrawPlusPromoBanner";
 import { AppSidebar } from "./components/AppSidebar";
+import {
+  signInWithGoogle,
+  signOutFromSupabase,
+  storeProviderToken,
+  supabase,
+} from "./lib/supabase";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -212,6 +220,15 @@ const shareableLinkConfirmDialog = {
   actionLabel: t("overwriteConfirm.modal.shareableLink.button"),
   color: "danger",
 } as const;
+
+const getAuthUserEmail = (session: Session | null) =>
+  session?.user?.email || null;
+
+const getAuthUserAvatarUrl = (session: Session | null) => {
+  const avatarUrl = session?.user?.user_metadata?.avatar_url;
+
+  return typeof avatarUrl === "string" ? avatarUrl : null;
+};
 
 const initializeScene = async (opts: {
   collabAPI: CollabAPI | null;
@@ -375,6 +392,8 @@ const ExcalidrawWrapper = () => {
   const excalidrawAPI = useExcalidrawAPI();
 
   const [errorMessage, setErrorMessage] = useState("");
+  const [authSession, setAuthSession] = useState<Session | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(Boolean(supabase));
   const isCollabDisabled = isRunningInIframe();
 
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
@@ -402,6 +421,75 @@ const ExcalidrawWrapper = () => {
     setTimeout(() => {
       trackEvent("load", "version", getVersion());
     }, VERSION_TIMEOUT);
+  }, []);
+
+  const syncAuthSession = useCallback((session: Session | null) => {
+    setAuthSession(session);
+
+    const providerToken = storeProviderToken(session);
+    if (providerToken && isDevEnv()) {
+      console.info("Google provider token:", providerToken);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) {
+      setIsAuthLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    supabase.auth
+      .getSession()
+      .then(({ data, error }) => {
+        if (error) {
+          throw error;
+        }
+        if (isMounted) {
+          syncAuthSession(data.session);
+          setIsAuthLoading(false);
+        }
+      })
+      .catch((error: Error) => {
+        if (isMounted) {
+          setErrorMessage(error.message);
+          setIsAuthLoading(false);
+        }
+      });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (isMounted) {
+        syncAuthSession(session);
+        setIsAuthLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, [syncAuthSession]);
+
+  const handleSignIn = useCallback(async () => {
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        throw error;
+      }
+    } catch (error: any) {
+      setErrorMessage(error.message || "Google sign-in failed");
+    }
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOutFromSupabase();
+    } catch (error: any) {
+      setErrorMessage(error.message || "Sign out failed");
+    }
   }, []);
 
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
@@ -953,8 +1041,19 @@ const ExcalidrawWrapper = () => {
         autoFocus={true}
         theme={editorTheme}
         renderTopRightUI={(isMobile) => {
+          const authControl = (
+            <AuthUserControl
+              isAuthenticated={Boolean(authSession)}
+              isLoading={isAuthLoading}
+              userEmail={getAuthUserEmail(authSession)}
+              userAvatarUrl={getAuthUserAvatarUrl(authSession)}
+              onSignIn={handleSignIn}
+              onSignOut={handleSignOut}
+            />
+          );
+
           if (isMobile || !collabAPI || isCollabDisabled) {
-            return null;
+            return authControl;
           }
 
           return (
@@ -965,6 +1064,7 @@ const ExcalidrawWrapper = () => {
                 />
               )}
 
+              {authControl}
               {collabError.message && <CollabError collabError={collabError} />}
               <LiveCollaborationTrigger
                 isCollaborating={isCollaborating}
@@ -987,13 +1087,19 @@ const ExcalidrawWrapper = () => {
           onCollabDialogOpen={onCollabDialogOpen}
           isCollaborating={isCollaborating}
           isCollabEnabled={!isCollabDisabled}
+          isAuthenticated={Boolean(authSession)}
+          userEmail={getAuthUserEmail(authSession)}
           theme={appTheme}
           setTheme={(theme) => setAppTheme(theme)}
           refresh={() => forceRefresh((prev) => !prev)}
+          onSignIn={handleSignIn}
+          onSignOut={handleSignOut}
         />
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}
           isCollabEnabled={!isCollabDisabled}
+          isAuthenticated={Boolean(authSession)}
+          onSignIn={handleSignIn}
         />
         <OverwriteConfirmDialog>
           <OverwriteConfirmDialog.Actions.ExportToImage />

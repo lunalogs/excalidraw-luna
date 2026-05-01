@@ -9,6 +9,8 @@ import { isExcalidrawPlusSignedUser } from "../app_constants";
 export const AppWelcomeScreen: React.FC<{
   onCollabDialogOpen: () => any;
   isCollabEnabled: boolean;
+  isAuthenticated: boolean;
+  onSignIn: () => void;
 }> = React.memo((props) => {
   const { t } = useI18n();
   let headingContent;
@@ -64,15 +66,17 @@ export const AppWelcomeScreen: React.FC<{
               onSelect={() => props.onCollabDialogOpen()}
             />
           )}
-          {!isExcalidrawPlusSignedUser && (
+          {!props.isAuthenticated && (
             <WelcomeScreen.Center.MenuItemLink
-              href={`${
-                import.meta.env.VITE_APP_PLUS_LP
-              }/plus?utm_source=excalidraw&utm_medium=app&utm_content=welcomeScreenGuest`}
+              href="#"
               shortcut={null}
               icon={loginIcon}
+              onSelect={(event) => {
+                event.preventDefault();
+                props.onSignIn();
+              }}
             >
-              Sign up
+              Sign in with Google
             </WelcomeScreen.Center.MenuItemLink>
           )}
         </WelcomeScreen.Center.Menu>

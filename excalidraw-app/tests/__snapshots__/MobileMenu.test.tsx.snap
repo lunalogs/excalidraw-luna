@@ -201,7 +201,7 @@ exports[`Test MobileMenu > should initialize with welcome screen and hide once u
     </button>
     <a
       class="welcome-screen-menu-item "
-      href="undefined/plus?utm_source=excalidraw&utm_medium=app&utm_content=welcomeScreenGuest"
+      href="#"
       rel="noopener"
       target="_blank"
     >
@@ -243,7 +243,7 @@ exports[`Test MobileMenu > should initialize with welcome screen and hide once u
       <div
         class="welcome-screen-menu-item__text"
       >
-        Sign up
+        Sign in with Google
       </div>
     </a>
   </div>
