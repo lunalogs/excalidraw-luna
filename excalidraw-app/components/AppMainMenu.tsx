@@ -1,7 +1,9 @@
 import {
+  LoadIcon,
   loginIcon,
   ExcalLogo,
   eyeIcon,
+  save,
 } from "@excalidraw/excalidraw/components/icons";
 import { MainMenu } from "@excalidraw/excalidraw/index";
 import React from "react";
@@ -25,11 +27,26 @@ export const AppMainMenu: React.FC<{
   refresh: () => void;
   onSignIn: () => void;
   onSignOut: () => void;
+  onOpenFromGoogleDrive: () => void;
+  onSaveToGoogleDrive: () => void;
+  onSaveAsGoogleDrive: () => void;
+  canSaveToGoogleDrive: boolean;
 }> = React.memo((props) => {
   return (
     <MainMenu>
       <MainMenu.DefaultItems.LoadScene />
+      <MainMenu.Item icon={LoadIcon} onSelect={props.onOpenFromGoogleDrive}>
+        Open from Google Drive
+      </MainMenu.Item>
       <MainMenu.DefaultItems.SaveToActiveFile />
+      {props.canSaveToGoogleDrive && (
+        <MainMenu.Item icon={save} onSelect={props.onSaveToGoogleDrive}>
+          Save to Google Drive
+        </MainMenu.Item>
+      )}
+      <MainMenu.Item icon={save} onSelect={props.onSaveAsGoogleDrive}>
+        Save copy to Google Drive
+      </MainMenu.Item>
       <MainMenu.DefaultItems.Export />
       <MainMenu.DefaultItems.SaveAsImage />
       {props.isCollabEnabled && (

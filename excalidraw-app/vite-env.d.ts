@@ -18,6 +18,8 @@ interface ImportMetaEnv {
   VITE_APP_FIREBASE_CONFIG: string;
   VITE_EXCALIDRAW_LUNA_SUPABASE_URL: string;
   VITE_EXCALIDRAW_LUNA_SUPABASE_PUBLISHABLE_KEY: string;
+  VITE_APP_GOOGLE_PICKER_API_KEY: string;
+  VITE_APP_GOOGLE_DRIVE_APP_ID: string;
 
   // whether to disable live reload / HMR. Usuaully what you want to do when
   // debugging Service Workers.

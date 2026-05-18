@@ -4,6 +4,7 @@ import {
   TTDDialogTrigger,
   CaptureUpdateAction,
   reconcileElements,
+  serializeAsJSON,
   useEditorInterface,
   ExcalidrawAPIProvider,
   useExcalidrawAPI,
@@ -152,9 +153,18 @@ import { AppSidebar } from "./components/AppSidebar";
 import {
   signInWithGoogle,
   signOutFromSupabase,
+  getProviderToken,
   storeProviderToken,
   supabase,
 } from "./lib/supabase";
+import {
+  createGoogleDriveFile,
+  downloadGoogleDriveFile,
+  getSceneNameFromDriveFile,
+  pickGoogleDriveFile,
+  updateGoogleDriveFile,
+  type GoogleDriveFile,
+} from "./data/googleDrive";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -394,6 +404,8 @@ const ExcalidrawWrapper = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(Boolean(supabase));
+  const [currentGoogleDriveFile, setCurrentGoogleDriveFile] =
+    useState<GoogleDriveFile | null>(null);
   const isCollabDisabled = isRunningInIframe();
 
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
@@ -487,10 +499,148 @@ const ExcalidrawWrapper = () => {
   const handleSignOut = useCallback(async () => {
     try {
       await signOutFromSupabase();
+      setCurrentGoogleDriveFile(null);
     } catch (error: any) {
       setErrorMessage(error.message || "Sign out failed");
     }
   }, []);
+
+  const getGoogleDriveAccessToken = useCallback(async () => {
+    const token = getProviderToken();
+    if (token) {
+      return token;
+    }
+
+    await handleSignIn();
+    throw new Error("Sign in with Google to use Google Drive.");
+  }, [handleSignIn]);
+
+  const getSerializedGoogleDriveScene = useCallback(() => {
+    if (!excalidrawAPI) {
+      throw new Error("Editor is not ready.");
+    }
+
+    return serializeAsJSON(
+      excalidrawAPI.getSceneElementsIncludingDeleted(),
+      excalidrawAPI.getAppState(),
+      excalidrawAPI.getFiles(),
+      "local",
+    );
+  }, [excalidrawAPI]);
+
+  const handleOpenFromGoogleDrive = useCallback(async () => {
+    if (!excalidrawAPI) {
+      return;
+    }
+
+    try {
+      const accessToken = await getGoogleDriveAccessToken();
+      const file = await pickGoogleDriveFile(accessToken);
+
+      if (!file) {
+        return;
+      }
+
+      const elements = excalidrawAPI.getSceneElements();
+      if (
+        elements.length &&
+        !(await openConfirmModal({
+          title: t("overwriteConfirm.modal.loadFromFile.title"),
+          actionLabel: t("overwriteConfirm.modal.loadFromFile.button"),
+          color: "warning",
+          description: (
+            <Trans
+              i18nKey="overwriteConfirm.modal.loadFromFile.description"
+              bold={(text) => <strong>{text}</strong>}
+              br={() => <br />}
+            />
+          ),
+        }))
+      ) {
+        return;
+      }
+
+      const driveFile = await downloadGoogleDriveFile(accessToken, file);
+      const {
+        elements: loadedElements,
+        appState: loadedAppState,
+        files,
+      } = await loadFromBlob(
+        driveFile,
+        excalidrawAPI.getAppState(),
+        excalidrawAPI.getSceneElementsIncludingDeleted(),
+        null,
+      );
+
+      if (files) {
+        excalidrawAPI.addFiles(Object.values(files));
+      }
+
+      excalidrawAPI.updateScene({
+        elements: loadedElements,
+        appState: {
+          ...loadedAppState,
+          name:
+            loadedAppState?.name ||
+            getSceneNameFromDriveFile(file.name) ||
+            null,
+        },
+        files,
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
+      excalidrawAPI.history.clear();
+      setCurrentGoogleDriveFile(file);
+      excalidrawAPI.setToast({
+        message: `Opened "${file.name}" from Google Drive`,
+      });
+    } catch (error: any) {
+      setErrorMessage(error.message || "Failed to open from Google Drive");
+    }
+  }, [excalidrawAPI, getGoogleDriveAccessToken]);
+
+  const handleSaveToGoogleDrive = useCallback(async () => {
+    if (!excalidrawAPI || !currentGoogleDriveFile) {
+      return;
+    }
+
+    try {
+      await updateGoogleDriveFile({
+        accessToken: await getGoogleDriveAccessToken(),
+        fileId: currentGoogleDriveFile.id,
+        serializedScene: getSerializedGoogleDriveScene(),
+      });
+      excalidrawAPI.setToast({
+        message: `Saved to Google Drive: "${currentGoogleDriveFile.name}"`,
+      });
+    } catch (error: any) {
+      setErrorMessage(error.message || "Failed to save to Google Drive");
+    }
+  }, [
+    currentGoogleDriveFile,
+    excalidrawAPI,
+    getGoogleDriveAccessToken,
+    getSerializedGoogleDriveScene,
+  ]);
+
+  const handleSaveAsGoogleDrive = useCallback(async () => {
+    if (!excalidrawAPI) {
+      return;
+    }
+
+    try {
+      const file = await createGoogleDriveFile({
+        accessToken: await getGoogleDriveAccessToken(),
+        name: excalidrawAPI.getName() || "Untitled",
+        serializedScene: getSerializedGoogleDriveScene(),
+      });
+      setCurrentGoogleDriveFile(file);
+      excalidrawAPI.setToast({
+        message: `Saved copy to Google Drive: "${file.name}"`,
+      });
+    } catch (error: any) {
+      setErrorMessage(error.message || "Failed to save to Google Drive");
+    }
+  }, [excalidrawAPI, getGoogleDriveAccessToken, getSerializedGoogleDriveScene]);
 
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
   const [collabAPI] = useAtom(collabAPIAtom);
@@ -1094,6 +1244,10 @@ const ExcalidrawWrapper = () => {
           refresh={() => forceRefresh((prev) => !prev)}
           onSignIn={handleSignIn}
           onSignOut={handleSignOut}
+          onOpenFromGoogleDrive={handleOpenFromGoogleDrive}
+          onSaveToGoogleDrive={handleSaveToGoogleDrive}
+          onSaveAsGoogleDrive={handleSaveAsGoogleDrive}
+          canSaveToGoogleDrive={Boolean(currentGoogleDriveFile)}
         />
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}
