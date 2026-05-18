@@ -585,7 +585,6 @@ const ExcalidrawWrapper = () => {
             getSceneNameFromDriveFile(file.name) ||
             null,
         },
-        files,
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
       });
       excalidrawAPI.history.clear();

@@ -138,7 +138,7 @@ export const pickGoogleDriveFile = async (
       .setDeveloperKey(developerKey)
       .addView(view)
       .enableFeature(picker.Feature.SUPPORT_DRIVES)
-      .setCallback((data) => {
+      .setCallback((data: GooglePickerResponse) => {
         if (data.action === picker.Action.PICKED) {
           const file = data.docs?.[0];
           resolve(
