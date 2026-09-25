@@ -32,3 +32,9 @@ yarn fix             # Auto-fix formatting and linting issues
 - Internal packages use path aliases (see `vitest.config.mts`)
 - Build system uses esbuild for packages, Vite for the app
 - TypeScript throughout with strict configuration
+
+## Handwriting / iPad Work
+
+For handwriting, brush controls/presets, hold-to-shape recognition, or related file workflow changes, read `docs/handwriting/README.md`, `SPEC.md`, and `ACCEPTANCE.md` before implementation. These documents distinguish the shipped phase-one baseline from the planned phase-two features.
+
+Every independently reviewable batch of changes (including follow-up fixes, configuration, tests, dependencies, and documentation) must add a numbered record under `docs/handwriting/changes/` using `CHANGELOG_TEMPLATE.md` and update `docs/handwriting/PROGRESS.md`. Include requirement IDs, changed files, actual validation results, remaining risks, and deviations. Do not claim real-device verification from desktop simulation. Include the change record in the same implementation commit. The final handoff must identify base/head commits and unverified acceptance items so another reviewer can reproduce the result.
