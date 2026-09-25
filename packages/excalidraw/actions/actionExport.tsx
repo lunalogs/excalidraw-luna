@@ -233,7 +233,7 @@ async function handleOnExportResult(
   }
 }
 
-function prepareDataForJSONExport(
+export function prepareDataForJSONExport(
   elements: readonly ExcalidrawElement[],
   appState: AppState,
   files: BinaryFiles,

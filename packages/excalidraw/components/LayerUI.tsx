@@ -54,6 +54,7 @@ import ElementLinkDialog from "./ElementLinkDialog";
 import { ErrorDialog } from "./ErrorDialog";
 import { EyeDropper, activeEyeDropperAtom } from "./EyeDropper";
 import { FixedSideContainer } from "./FixedSideContainer";
+import { HandwritingPanel } from "./HandwritingPanel";
 import { HelpDialog } from "./HelpDialog";
 import { HintViewer } from "./HintViewer";
 import { ImageExportDialog } from "./ImageExportDialog";
@@ -458,6 +459,9 @@ const LayerUI = ({
       {/* make sure we render host app components first so that we can detect
           them first on initial render to optimize layout shift */}
       {children}
+      {!appState.viewModeEnabled && !appState.zenModeEnabled && (
+        <HandwritingPanel />
+      )}
       {/* render component fallbacks. Can be rendered anywhere as they'll be
           tunneled away. We only render tunneled components that actually
         have defaults when host do not render anything. */}

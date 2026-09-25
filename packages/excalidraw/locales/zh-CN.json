@@ -711,5 +711,32 @@
     "spacebar": "空格",
     "delete": "Delete",
     "mmb": "鼠标滚轮"
+  },
+  "handwriting": {
+    "title": "手写与文件",
+    "brush": "笔触",
+    "standard": "画笔",
+    "fountain": "钢笔",
+    "highlighter": "荧光笔",
+    "eraser": "橡皮",
+    "backToPen": "返回画笔",
+    "eraserHint": "擦除整条笔画或对象；再次点击返回画笔。",
+    "width": "粗细",
+    "color": "颜色",
+    "penOnly": "仅用 Pencil 写画",
+    "gestures": "开启仅用 Pencil 后，画笔和橡皮模式下可单指移动画布、双指缩放。",
+    "pencilTap": "Pencil 笔杆双击需要原生 iPad App 支持；网页版请用橡皮按钮切换。",
+    "open": "打开文件 / 导入",
+    "export": "导出可编辑文件",
+    "preparing": "正在准备…",
+    "replaceWarning": "打开文件将替换当前画布，请先导出需要保留的内容。",
+    "snapshot": "可编辑快照已准备好。如继续修改画布，请重新导出以包含最新内容。",
+    "saveToFiles": "存储到文件 / 分享",
+    "download": "下载 / 另存为",
+    "shared": "分享面板已关闭，请在“文件”中确认保存位置。",
+    "downloaded": "文件已交给浏览器，请检查所选目录或下载文件夹。",
+    "storageHint": "支持从 iCloud Drive 或本地打开 .excalidraw 文件。iPad 可在分享面板选择“存储到文件”。本机草稿不会自动同步到 iCloud。",
+    "fileError": "文件操作未完成，请重试。",
+    "missingImages": "有图片尚未加载成功，请等待图片加载完成后再导出。"
   }
 }

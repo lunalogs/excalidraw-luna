@@ -734,5 +734,32 @@
     "spacebar": "Space",
     "delete": "Delete",
     "mmb": "Scroll wheel"
+  },
+  "handwriting": {
+    "title": "Handwriting & files",
+    "brush": "Brush",
+    "standard": "Pen",
+    "fountain": "Fountain pen",
+    "highlighter": "Highlighter",
+    "eraser": "Eraser",
+    "backToPen": "Back to pen",
+    "eraserHint": "Erase whole strokes or objects; tap again to return to the pen.",
+    "width": "Width",
+    "color": "Color",
+    "penOnly": "Draw with Pencil only",
+    "gestures": "With Pencil-only mode on: use one finger to pan and two fingers to zoom while drawing or erasing.",
+    "pencilTap": "Pencil barrel double-tap requires a native iPad app. Use the eraser button on the web.",
+    "open": "Open file / import",
+    "export": "Export editable file",
+    "preparing": "Preparing…",
+    "replaceWarning": "Opening a file replaces this canvas. Export any work you want to keep first.",
+    "snapshot": "Editable snapshot ready. If you keep editing, export again to include the latest changes.",
+    "saveToFiles": "Save to Files / share",
+    "download": "Download / save as",
+    "shared": "Share sheet closed. Check Files to confirm where you saved the document.",
+    "downloaded": "File handed to your browser. Check your chosen folder or Downloads.",
+    "storageHint": "Open .excalidraw files from iCloud Drive or local storage. On iPad, use Save to Files in the share sheet. Local drafts do not automatically sync to iCloud.",
+    "fileError": "Could not complete the file operation. Please try again.",
+    "missingImages": "Some images are still unavailable. Wait for them to load before exporting."
   }
 }

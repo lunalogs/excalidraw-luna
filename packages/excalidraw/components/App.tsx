@@ -2846,6 +2846,8 @@ class App extends React.Component<AppProps, AppState> {
 
   private onBlur = withBatchedUpdates(() => {
     isHoldingSpace = false;
+    this.activePenPointerId = null;
+    gesture.pointers.clear();
     this.setState({
       isBindingEnabled: this.state.bindingPreference === "enabled",
     });
@@ -3612,6 +3614,14 @@ class App extends React.Component<AppProps, AppState> {
       event.preventDefault();
     }
 
+    if (
+      this.activePenPointerId !== null ||
+      (this.state.penMode &&
+        ["freedraw", "eraser"].includes(this.state.activeTool.type))
+    ) {
+      return;
+    }
+
     if (!didTapTwice) {
       didTapTwice = true;
 
@@ -3668,6 +3678,9 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private onTouchEnd = (event: TouchEvent) => {
+    if (this.activePenPointerId !== null) {
+      return;
+    }
     this.resetContextMenuTimer();
     if (event.touches.length > 0) {
       this.setState({
@@ -4232,11 +4245,16 @@ class App extends React.Component<AppProps, AppState> {
     this.setState(state, callback);
   };
 
+  private activePenPointerId: number | null = null;
+
   removePointer = (event: React.PointerEvent<HTMLElement> | PointerEvent) => {
     if (touchTimeout) {
       this.resetContextMenuTimer();
     }
 
+    if (event.pointerId === this.activePenPointerId) {
+      this.activePenPointerId = null;
+    }
     gesture.pointers.delete(event.pointerId);
   };
 
@@ -6713,6 +6731,9 @@ class App extends React.Component<AppProps, AppState> {
   private handleCanvasPointerMove = (
     event: React.PointerEvent<HTMLCanvasElement>,
   ) => {
+    if (event.pointerType === "touch" && this.activePenPointerId !== null) {
+      return;
+    }
     this.savePointer(event.clientX, event.clientY, this.state.cursorButton);
     this.lastPointerMoveEvent = event.nativeEvent;
     const scenePointer = viewportCoordsToSceneCoords(event, this.state);
@@ -6721,6 +6742,24 @@ class App extends React.Component<AppProps, AppState> {
       x: scenePointerX,
       y: scenePointerY,
     };
+
+    const previousTouch = gesture.pointers.get(event.pointerId);
+    if (
+      event.pointerType === "touch" &&
+      this.state.penMode &&
+      ["freedraw", "eraser"].includes(this.state.activeTool.type) &&
+      gesture.pointers.size === 1 &&
+      previousTouch
+    ) {
+      this.translateCanvas({
+        scrollX:
+          this.state.scrollX +
+          (event.clientX - previousTouch.x) / this.state.zoom.value,
+        scrollY:
+          this.state.scrollY +
+          (event.clientY - previousTouch.y) / this.state.zoom.value,
+      });
+    }
 
     if (gesture.pointers.has(event.pointerId)) {
       gesture.pointers.set(event.pointerId, {
@@ -6742,36 +6781,22 @@ class App extends React.Component<AppProps, AppState> {
       gesture.lastCenter = center;
 
       const distance = getDistance(Array.from(gesture.pointers.values()));
-      const scaleFactor =
-        this.state.activeTool.type === "freedraw" && this.state.penMode
-          ? 1
-          : distance / gesture.initialDistance;
+      const scaleFactor = distance / gesture.initialDistance;
 
       const nextZoom = scaleFactor
         ? getNormalizedZoom(initialScale * scaleFactor)
         : this.state.zoom.value;
 
-      this.setState((state) => {
-        const zoomState = getStateForZoom(
-          {
-            viewportX: center.x,
-            viewportY: center.y,
-            nextZoom,
-          },
-          state,
-        );
-
-        this.translateCanvas({
-          zoom: zoomState.zoom,
-          // 2x multiplier is just a magic number that makes this work correctly
-          // on touchscreen devices (note: if we get report that panning is slower/faster
-          // than actual movement, consider swapping with devicePixelRatio)
-          scrollX: zoomState.scrollX + 2 * (deltaX / nextZoom),
-          scrollY: zoomState.scrollY + 2 * (deltaY / nextZoom),
-          shouldCacheIgnoreZoom: true,
-        });
-
-        return null;
+      const zoomState = getStateForZoom(
+        { viewportX: center.x, viewportY: center.y, nextZoom },
+        this.state,
+      );
+      this.translateCanvas({
+        zoom: zoomState.zoom,
+        // Preserve the existing touch-pan sensitivity while allowing pinch zoom.
+        scrollX: zoomState.scrollX + 2 * (deltaX / nextZoom),
+        scrollY: zoomState.scrollY + 2 * (deltaY / nextZoom),
+        shouldCacheIgnoreZoom: true,
       });
       this.resetShouldCacheIgnoreZoomDebounced();
     } else {
@@ -7505,6 +7530,13 @@ class App extends React.Component<AppProps, AppState> {
   private handleCanvasPointerDown = (
     event: React.PointerEvent<HTMLElement>,
   ) => {
+    // A palm must not finalize the stroke or enter the gesture map.
+    if (event.pointerType === "touch" && this.activePenPointerId !== null) {
+      return;
+    }
+    if (event.pointerType === "pen") {
+      gesture.pointers.clear();
+    }
     const selectedElements = this.scene.getSelectedElements(this.state);
 
     // If Ctrl is not held, ensure isBindingEnabled reflects the user preference.
@@ -7530,6 +7562,9 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     this.maybeCleanupAfterMissingPointerUp(event.nativeEvent);
+    if (event.pointerType === "pen") {
+      this.activePenPointerId = event.pointerId;
+    }
     this.maybeUnfollowRemoteUser();
 
     if (this.state.searchMatches) {
@@ -7938,17 +7973,25 @@ class App extends React.Component<AppProps, AppState> {
       );
     }
 
-    const onPointerMove =
-      this.onPointerMoveFromPointerDownHandler(pointerDownState);
+    const onPointerMove = this.onPointerMoveFromPointerDownHandler(
+      pointerDownState,
+      event.pointerType === "pen" ? event.pointerId : undefined,
+    );
 
-    const onPointerUp =
-      this.onPointerUpFromPointerDownHandler(pointerDownState);
+    const onPointerUp = this.onPointerUpFromPointerDownHandler(
+      pointerDownState,
+      event.pointerType === "pen" ? event.pointerId : undefined,
+    );
 
     const onKeyDown = this.onKeyDownFromPointerDownHandler(pointerDownState);
     const onKeyUp = this.onKeyUpFromPointerDownHandler(pointerDownState);
 
     this.missingPointerEventCleanupEmitter.once((_event) =>
-      onPointerUp(_event || event.nativeEvent),
+      onPointerUp(
+        event.pointerType === "pen"
+          ? event.nativeEvent
+          : _event || event.nativeEvent,
+      ),
     );
 
     if (!this.state.viewModeEnabled || this.state.activeTool.type === "laser") {
@@ -8855,7 +8898,14 @@ class App extends React.Component<AppProps, AppState> {
       strokeWidth: this.state.currentItemStrokeWidth,
       strokeStyle: this.state.currentItemStrokeStyle,
       roughness: this.state.currentItemRoughness,
-      opacity: this.state.currentItemOpacity,
+      opacity:
+        this.state.currentItemBrush === "highlighter"
+          ? 30
+          : this.state.currentItemOpacity,
+      customData:
+        this.state.currentItemBrush === "standard"
+          ? undefined
+          : { handwritingBrush: this.state.currentItemBrush },
       roundness: null,
       simulatePressure,
       locked: false,
@@ -9502,8 +9552,12 @@ class App extends React.Component<AppProps, AppState> {
 
   private onPointerMoveFromPointerDownHandler(
     pointerDownState: PointerDownState,
+    penPointerId?: number,
   ) {
     return withBatchedUpdatesThrottled((event: PointerEvent) => {
+      if (penPointerId !== undefined && event.pointerId !== penPointerId) {
+        return;
+      }
       if (this.state.openDialog?.name === "elementLinkSelector") {
         return;
       }
@@ -10408,8 +10462,12 @@ class App extends React.Component<AppProps, AppState> {
 
   private onPointerUpFromPointerDownHandler(
     pointerDownState: PointerDownState,
+    penPointerId?: number,
   ): (event: PointerEvent) => void {
     return withBatchedUpdates((childEvent: PointerEvent) => {
+      if (penPointerId !== undefined && childEvent.pointerId !== penPointerId) {
+        return;
+      }
       const elementsMap = this.scene.getNonDeletedElementsMap();
 
       this.removePointer(childEvent);
