@@ -261,6 +261,9 @@ import {
   getActiveTextElement,
 } from "@excalidraw/element";
 
+import { HANDWRITING_SCHEMA_VERSION } from "@excalidraw/element/handwriting/types";
+import { encodeBrushConfig } from "@excalidraw/element/handwriting/brushParams";
+
 import type { GlobalPoint, LocalPoint, Radians } from "@excalidraw/math";
 
 import type {
@@ -8898,14 +8901,21 @@ class App extends React.Component<AppProps, AppState> {
       strokeWidth: this.state.currentItemStrokeWidth,
       strokeStyle: this.state.currentItemStrokeStyle,
       roughness: this.state.currentItemRoughness,
-      opacity:
-        this.state.currentItemBrush === "highlighter"
-          ? 30
-          : this.state.currentItemOpacity,
-      customData:
-        this.state.currentItemBrush === "standard"
-          ? undefined
-          : { handwritingBrush: this.state.currentItemBrush },
+      opacity: this.state.currentItemOpacity,
+      // Phase-two (DATA-01): every new stroke stores a full, versioned
+      // parameter snapshot. The legacy `handwritingBrush` string is still
+      // read for old files (see decodeBrushConfig), but no longer written.
+      customData: {
+        handwriting: encodeBrushConfig({
+          schemaVersion: HANDWRITING_SCHEMA_VERSION,
+          brushKind: this.state.currentItemBrush,
+          pressureAmount: this.state.currentItemPressureAmount,
+          pressureSensitivity: this.state.currentItemPressureSensitivity,
+          nibFlatness: this.state.currentItemNibFlatness,
+          nibAngle: this.state.currentItemNibAngle,
+          stabilization: this.state.currentItemStabilization,
+        }),
+      },
       roundness: null,
       simulatePressure,
       locked: false,

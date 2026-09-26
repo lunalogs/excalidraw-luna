@@ -53,7 +53,7 @@ it("pans with one finger and zooms with two in Pencil-only mode without drawing"
 });
 
 it("creates a translucent highlighter, keeps its style across export/import, and returns from eraser", async () => {
-  fireEvent.click(screen.getByRole("button", { name: /Handwriting & files/ }));
+  UI.clickTool("freedraw");
   fireEvent.click(screen.getByRole("button", { name: "Highlighter" }));
   fireEvent.change(screen.getByRole("slider", { name: "Width" }), {
     target: { value: "8" },
@@ -67,7 +67,11 @@ it("creates a translucent highlighter, keeps its style across export/import, and
     type: "freedraw",
     strokeWidth: 8,
     opacity: 30,
-    customData: { handwritingBrush: "highlighter" },
+  });
+  expect(stroke.customData?.handwriting).toMatchObject({
+    schemaVersion: 1,
+    brushKind: "highlighter",
+    pressureAmount: 0,
   });
   const restored = await loadFromBlob(
     new Blob([serializeAsJSON(h.elements, h.state, {}, "local")], {
@@ -117,7 +121,7 @@ it("uses constant width for highlighter and pressure variation for fountain pen"
   ).not.toEqual(outline);
 });
 
-it("exports an editable file through the panel and loads it back including embedded images", async () => {
+it("exports an editable file through the main menu and loads it back including embedded images", async () => {
   const { MIME_TYPES } = await import("@excalidraw/common");
   const filesystem = await import("../data/filesystem");
   const { waitFor } = await import("./test-utils");
@@ -135,12 +139,12 @@ it("exports an editable file through the panel and loads it back including embed
   };
   act(() => h.app.addFiles([file]));
   API.setElements([image]);
-  fireEvent.click(screen.getByRole("button", { name: /Handwriting & files/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Export editable file" }));
-  const download = await screen.findByRole("button", {
-    name: "Download / save as",
-  });
-  fireEvent.click(download);
+  // file actions live in the main menu and are reachable from any tool
+  UI.clickTool("rectangle");
+  fireEvent.click(screen.getByTestId("main-menu-trigger"));
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: "Export editable file" }),
+  );
   await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
   const blob = saveSpy.mock.calls[0][0] as Blob;
   const restored = await loadFromBlob(blob, null, null);
@@ -152,7 +156,7 @@ it("exports an editable file through the panel and loads it back including embed
   saveSpy.mockRestore();
 });
 
-it("opens the file picker from the import entry and restores editable strokes", async () => {
+it("opens the file picker from the main menu and restores editable strokes", async () => {
   const filesystem = await import("../data/filesystem");
   const { waitFor } = await import("./test-utils");
   const stroke = API.createElement({ type: "freedraw" });
@@ -162,8 +166,10 @@ it("opens the file picker from the import entry and restores editable strokes", 
     { type: "application/json" },
   );
   const openSpy = vi.spyOn(filesystem, "fileOpen").mockResolvedValue(file);
-  fireEvent.click(screen.getByRole("button", { name: /Handwriting & files/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Open file / import" }));
+  fireEvent.click(screen.getByTestId("main-menu-trigger"));
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: "Open file / import" }),
+  );
   await waitFor(() => expect(h.elements[0]?.id).toBe(stroke.id));
   expect(openSpy).toHaveBeenCalledTimes(1);
   openSpy.mockRestore();
@@ -175,8 +181,10 @@ it("leaves the canvas intact when the file picker is cancelled", async () => {
   const openSpy = vi
     .spyOn(filesystem, "fileOpen")
     .mockRejectedValue(new DOMException("Cancelled", "AbortError"));
-  fireEvent.click(screen.getByRole("button", { name: /Handwriting & files/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Open file / import" }));
+  fireEvent.click(screen.getByTestId("main-menu-trigger"));
+  fireEvent.click(
+    await screen.findByRole("menuitem", { name: "Open file / import" }),
+  );
   await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(1));
   expect(h.elements).toHaveLength(0);
   expect(h.state.errorMessage).toBeNull();

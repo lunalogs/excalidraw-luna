@@ -34,6 +34,8 @@ export const AppMainMenu: React.FC<{
 }> = React.memo((props) => {
   return (
     <MainMenu>
+      <MainMenu.DefaultItems.OpenHandwritingFile />
+      <MainMenu.DefaultItems.ExportHandwritingFile />
       <MainMenu.DefaultItems.LoadScene />
       <MainMenu.Item icon={LoadIcon} onSelect={props.onOpenFromGoogleDrive}>
         Open from Google Drive
@@ -72,9 +74,7 @@ export const AppMainMenu: React.FC<{
       <MainMenu.DefaultItems.Socials />
       <MainMenu.Item
         icon={loginIcon}
-        onSelect={
-          props.isAuthenticated ? props.onSignOut : props.onSignIn
-        }
+        onSelect={props.isAuthenticated ? props.onSignOut : props.onSignIn}
         className="highlighted"
       >
         {props.isAuthenticated

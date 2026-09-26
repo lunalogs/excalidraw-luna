@@ -1,6 +1,10 @@
 import { simplify } from "points-on-curve";
 import { getStroke } from "perfect-freehand";
 
+import { normalizeBrushConfig } from "./handwriting/brushParams";
+import { computeHandwritingOutline } from "./handwriting/outline";
+import { isHandwritingBrushKind } from "./handwriting/types";
+
 import {
   type GeometricShape,
   getClosedCurveShape,
@@ -1181,27 +1185,26 @@ const getFreeDrawSvgPath = (element: ExcalidrawFreeDrawElement) => {
 export const getFreedrawOutlinePoints = (
   element: ExcalidrawFreeDrawElement,
 ) => {
-  // If input points are empty (should they ever be?) return a dot
-  const inputPoints = element.simulatePressure
-    ? element.points
-    : element.points.length
-    ? element.points.map(([x, y], i) => [x, y, element.pressures[i]])
-    : [[0, 0, 0.5]];
+  // Phase-two strokes carry a versioned `customData.handwriting` object and
+  // render through the new brush engine. Phase-one files only have the
+  // legacy `handwritingBrush` string (or no customData at all) and must keep
+  // the exact legacy appearance (BR-09) — `normalizeBrushConfig` returns null
+  // for anything that is not a valid phase-two object.
+  const config = normalizeBrushConfig(element.customData?.handwriting);
+  const legacyBrushKind = isHandwritingBrushKind(
+    element.customData?.handwritingBrush,
+  )
+    ? element.customData.handwritingBrush
+    : null;
 
-  return getStroke(inputPoints as number[][], {
-    simulatePressure: element.simulatePressure,
+  return computeHandwritingOutline({
+    points: element.points,
+    pressures: element.pressures,
     size: element.strokeWidth * 4.25,
-    thinning:
-      element.customData?.handwritingBrush === "highlighter"
-        ? 0
-        : element.customData?.handwritingBrush === "fountain"
-        ? 0.85
-        : 0.6,
-    smoothing: 0.5,
-    streamline: 0.5,
-    easing: (t) => Math.sin((t * Math.PI) / 2), // https://easings.net/#easeOutSine
-    last: true,
-  }) as [number, number][];
+    simulatePressure: element.simulatePressure,
+    config,
+    legacyBrushKind,
+  });
 };
 
 const med = (A: number[], B: number[]) => {

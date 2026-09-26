@@ -66,6 +66,7 @@ import { ToolPopover } from "./ToolPopover";
 import { Tooltip } from "./Tooltip";
 import DropdownMenu from "./dropdownMenu/DropdownMenu";
 import { PropertiesPopover } from "./PropertiesPopover";
+import { HandwritingBrushPanel } from "./HandwritingBrushPanel";
 import {
   EmbedIcon,
   extraToolsIcon,
@@ -82,6 +83,7 @@ import {
   DotsHorizontalIcon,
   SelectionIcon,
   pencilIcon,
+  FreedrawIcon,
 } from "./icons";
 
 import { Island } from "./Island";
@@ -186,8 +188,11 @@ export const SelectedShapeActions = ({
   const showAlignActions =
     !isSingleElementBoundContainer && alignActionsPredicate(appState, app);
 
+  const showHandwritingBrushPanel = appState.activeTool.type === "freedraw";
+
   return (
     <div className="selected-shape-actions">
+      {showHandwritingBrushPanel && <HandwritingBrushPanel />}
       <div>
         {canChangeStrokeColor(appState, targetElements) &&
           renderAction("changeStrokeColor")}
@@ -197,8 +202,9 @@ export const SelectedShapeActions = ({
       )}
       {showFillIcons && renderAction("changeFillStyle")}
 
-      {(hasStrokeWidth(appState.activeTool.type) ||
-        targetElements.some((element) => hasStrokeWidth(element.type))) &&
+      {!showHandwritingBrushPanel &&
+        (hasStrokeWidth(appState.activeTool.type) ||
+          targetElements.some((element) => hasStrokeWidth(element.type))) &&
         renderAction("changeStrokeWidth")}
 
       {(appState.activeTool.type === "freedraw" ||
@@ -241,7 +247,7 @@ export const SelectedShapeActions = ({
         <>{renderAction("changeArrowhead")}</>
       )}
 
-      {renderAction("changeOpacity")}
+      {!showHandwritingBrushPanel && renderAction("changeOpacity")}
 
       <fieldset>
         <legend>{t("labels.layers")}</legend>
@@ -410,6 +416,68 @@ const CombinedShapeProperties = ({
                 renderAction("changeRoundness")}
               {renderAction("changeOpacity")}
             </div>
+          </PropertiesPopover>
+        )}
+      </Popover.Root>
+    </div>
+  );
+};
+
+const CombinedHandwritingProperties = ({
+  appState,
+  setAppState,
+  container,
+}: {
+  appState: UIAppState;
+  setAppState: React.Component<any, AppState>["setState"];
+  container: HTMLDivElement | null;
+}) => {
+  const isOpen = appState.openPopup === "compactHandwritingProperties";
+
+  if (appState.activeTool.type !== "freedraw") {
+    return null;
+  }
+
+  return (
+    <div className="compact-action-item">
+      <Popover.Root
+        open={isOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setAppState({ openPopup: "compactHandwritingProperties" });
+          } else {
+            setAppState({ openPopup: null });
+          }
+        }}
+      >
+        <Popover.Trigger asChild>
+          <button
+            type="button"
+            className={clsx("compact-action-button properties-trigger", {
+              active: isOpen,
+            })}
+            title={t("handwriting.brush")}
+            aria-label={t("handwriting.brush")}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+
+              setAppState({
+                openPopup: isOpen ? null : "compactHandwritingProperties",
+              });
+            }}
+          >
+            {FreedrawIcon}
+          </button>
+        </Popover.Trigger>
+        {isOpen && (
+          <PropertiesPopover
+            className={PROPERTIES_CLASSES}
+            container={container}
+            style={{ maxWidth: "17rem" }}
+            onClose={() => {}}
+          >
+            <HandwritingBrushPanel />
           </PropertiesPopover>
         )}
       </Popover.Root>
@@ -825,6 +893,12 @@ export const CompactShapeActions = ({
           {renderAction("changeBackgroundColor")}
         </div>
       )}
+
+      <CombinedHandwritingProperties
+        appState={appState}
+        setAppState={setAppState}
+        container={container}
+      />
 
       <CombinedShapeProperties
         appState={appState}

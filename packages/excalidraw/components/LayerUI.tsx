@@ -32,6 +32,7 @@ import {
   ShapesSwitcher,
   CompactShapeActions,
 } from "./Actions";
+import { HandwritingEraserPanel } from "./HandwritingBrushPanel";
 import { LoadingMessage } from "./LoadingMessage";
 import { LockButton } from "./LockButton";
 import { MobileMenu } from "./MobileMenu";
@@ -54,7 +55,6 @@ import ElementLinkDialog from "./ElementLinkDialog";
 import { ErrorDialog } from "./ErrorDialog";
 import { EyeDropper, activeEyeDropperAtom } from "./EyeDropper";
 import { FixedSideContainer } from "./FixedSideContainer";
-import { HandwritingPanel } from "./HandwritingPanel";
 import { HelpDialog } from "./HelpDialog";
 import { HintViewer } from "./HintViewer";
 import { ImageExportDialog } from "./ImageExportDialog";
@@ -107,6 +107,8 @@ const DefaultMainMenu: React.FC<{
 }> = ({ UIOptions }) => {
   return (
     <MainMenu __fallback>
+      <MainMenu.DefaultItems.OpenHandwritingFile />
+      <MainMenu.DefaultItems.ExportHandwritingFile />
       <MainMenu.DefaultItems.LoadScene />
       <MainMenu.DefaultItems.SaveToActiveFile />
       {/* FIXME we should to test for this inside the item itself */}
@@ -312,6 +314,19 @@ const LayerUI = ({
               })}
             >
               {shouldRenderSelectedShapeActions && renderSelectedShapeActions()}
+              {!shouldRenderSelectedShapeActions &&
+                !appState.viewModeEnabled &&
+                !appState.zenModeEnabled &&
+                appState.activeTool.type === "eraser" && (
+                  <Section
+                    heading="selectedShapeActions"
+                    className="selected-shape-actions zen-mode-transition"
+                  >
+                    <Island className="selected-shape-actions-island">
+                      <HandwritingEraserPanel />
+                    </Island>
+                  </Section>
+                )}
             </div>
           </Stack.Col>
           {!appState.viewModeEnabled &&
@@ -459,9 +474,6 @@ const LayerUI = ({
       {/* make sure we render host app components first so that we can detect
           them first on initial render to optimize layout shift */}
       {children}
-      {!appState.viewModeEnabled && !appState.zenModeEnabled && (
-        <HandwritingPanel />
-      )}
       {/* render component fallbacks. Can be rendered anywhere as they'll be
           tunneled away. We only render tunneled components that actually
         have defaults when host do not render anything. */}

@@ -358,6 +358,22 @@ export interface AppState {
   currentItemFillStyle: ExcalidrawElement["fillStyle"];
   currentItemStrokeWidth: number;
   currentItemBrush: "standard" | "fountain" | "highlighter";
+  /** 压力幅度 0–100 (SPEC BR-01) */
+  currentItemPressureAmount: number;
+  /** 笔尖灵敏度 0–100 (SPEC BR-01) */
+  currentItemPressureSensitivity: number;
+  /** 笔尖扁平度 0–100 (SPEC BR-03) */
+  currentItemNibFlatness: number;
+  /** 笔尖角度 0–180° (SPEC BR-04) */
+  currentItemNibAngle: number;
+  /** 画笔稳定性 0–100 (SPEC BR-02/BR-08) */
+  currentItemStabilization: number;
+  /** 停笔规整开关 (SPEC SH-01) */
+  currentItemShapeRecognition: boolean;
+  /** 停笔规整等待时间（秒，0.5–3，步进 0.1，SPEC SH-02） */
+  currentItemShapeRecognitionDelay: number;
+  /** 当前选中的笔刷预设 id（内置或个人）；null 表示无匹配预设 */
+  currentItemBrushPreset: string | null;
   currentItemStrokeStyle: ExcalidrawElement["strokeStyle"];
   currentItemRoughness: number;
   currentItemOpacity: number;
@@ -388,6 +404,7 @@ export interface AppState {
     | "compactStrokeStyles"
     | "compactOtherProperties"
     | "compactArrowProperties"
+    | "compactHandwritingProperties"
     | null;
   openSidebar: { name: SidebarName; tab?: SidebarTabName } | null;
   openDialog:

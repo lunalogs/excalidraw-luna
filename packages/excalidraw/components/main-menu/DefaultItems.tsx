@@ -32,6 +32,7 @@ import {
   useAppProps,
   useApp,
 } from "../App";
+import { useHandwritingFileActions } from "../HandwritingFileMenuItems";
 import { openConfirmModal } from "../OverwriteConfirm/OverwriteConfirmState";
 import Trans from "../Trans";
 import DropdownMenuItem from "../dropdownMenu/DropdownMenuItem";
@@ -105,6 +106,44 @@ export const LoadScene = () => {
   );
 };
 LoadScene.displayName = "LoadScene";
+
+export const OpenHandwritingFile = () => {
+  const { t } = useI18n();
+  const actionManager = useExcalidrawActionManager();
+  const { openFile } = useHandwritingFileActions();
+
+  if (!actionManager.isActionEnabled(actionLoadScene)) {
+    return null;
+  }
+
+  return (
+    <DropdownMenuItem
+      icon={LoadIcon}
+      onSelect={openFile}
+      aria-label={t("handwriting.open")}
+    >
+      {t("handwriting.open")}
+    </DropdownMenuItem>
+  );
+};
+OpenHandwritingFile.displayName = "OpenHandwritingFile";
+
+export const ExportHandwritingFile = () => {
+  const { t } = useI18n();
+  const { exportFile, busy } = useHandwritingFileActions();
+
+  return (
+    <DropdownMenuItem
+      icon={ExportIcon}
+      onSelect={exportFile}
+      disabled={busy}
+      aria-label={t("handwriting.export")}
+    >
+      {busy ? t("handwriting.preparing") : t("handwriting.export")}
+    </DropdownMenuItem>
+  );
+};
+ExportHandwritingFile.displayName = "ExportHandwritingFile";
 
 export const SaveToActiveFile = () => {
   const { t } = useI18n();
