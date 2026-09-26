@@ -1,0 +1,31 @@
+.excalidraw {
+  .handwriting-restore-button {
+    position: fixed;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--zIndex-layerUI);
+
+    min-height: 44px;
+    padding: 0 1rem;
+    border: 1px solid var(--color-primary, #6965db);
+    border-radius: 8px;
+    background: var(--color-surface-primary, #fff);
+    color: var(--color-primary, #6965db);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: var(--shadow-island, 0 0 0.5rem rgba(0, 0, 0, 0.1));
+  }
+}
+
+.excalidraw {
+  .shape-preview-trail__label {
+    font-size: 13px;
+    font-family: var(--ui-font, inherit);
+    fill: var(--color-on-surface, #1e1e1e);
+    stroke: none;
+    paint-order: stroke;
+    user-select: none;
+  }
+}

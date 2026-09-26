@@ -1059,13 +1059,40 @@ export const recognizeShape = (
   options?: RecognizeOptions,
 ): ShapeCandidate | null => {
   const minDiagonal = options?.minDiagonal ?? DEFAULT_MIN_DIAGONAL;
-  if (!points || points.length < MIN_POINTS) {
+  if (!points || points.length < 2) {
     return null;
   }
   for (const p of points) {
     if (p.length < 2 || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) {
       return null;
     }
+  }
+
+  // 恰好两个不同点的退化输入：视为完美直线（手写单笔画通常有更多点，
+  // 但快速一划或测试输入可能只有 2 个采样）。点/极小抖动仍被尺寸门槛拦截。
+  const distinct: [number, number][] = [];
+  for (const p of points) {
+    const last = distinct[distinct.length - 1];
+    if (!last || dist(last, p as [number, number]) > 1e-9) {
+      distinct.push([p[0], p[1]]);
+    }
+  }
+  if (distinct.length === 2) {
+    const chord = dist(distinct[0], distinct[1]);
+    if (!(chord >= minDiagonal)) {
+      return null;
+    }
+    return {
+      geometry: {
+        kind: "line",
+        x1: distinct[0][0],
+        y1: distinct[0][1],
+        x2: distinct[1][0],
+        y2: distinct[1][1],
+      },
+      kind: "line",
+      score: 1,
+    };
   }
 
   // SH-08 预处理：弧长等距重采样（≤128 点）。

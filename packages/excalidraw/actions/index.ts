@@ -34,6 +34,10 @@ export {
 export { actionSetEmbeddableAsActiveTool } from "./actionEmbeddable";
 
 export { actionFinalize } from "./actionFinalize";
+export {
+  actionCommitHandwritingShape,
+  actionRestoreHandDrawn,
+} from "./actionHandwriting";
 export { actionDeselect } from "./actionDeselect";
 
 export {

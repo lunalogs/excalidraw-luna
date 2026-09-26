@@ -77,6 +77,8 @@ export type ActionName =
   | "undo"
   | "redo"
   | "finalize"
+  | "handwritingCommitShape"
+  | "handwritingRestoreHandDrawn"
   | "changeProjectName"
   | "changeExportBackground"
   | "changeExportEmbedScene"

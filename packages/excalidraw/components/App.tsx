@@ -264,6 +264,8 @@ import {
 import { HANDWRITING_SCHEMA_VERSION } from "@excalidraw/element/handwriting/types";
 import { encodeBrushConfig } from "@excalidraw/element/handwriting/brushParams";
 
+import { recognizeShape } from "@excalidraw/element/handwriting/shapeRecognition";
+
 import type { GlobalPoint, LocalPoint, Radians } from "@excalidraw/math";
 
 import type {
@@ -294,6 +296,8 @@ import type {
 
 import type { Mutable, ValueOf } from "@excalidraw/common/utility-types";
 
+import type { ShapeCandidate } from "@excalidraw/element/handwriting/shapeRecognition";
+
 import {
   actionAddToLibrary,
   actionBringForward,
@@ -307,6 +311,8 @@ import {
   actionDeleteSelected,
   actionDuplicateSelection,
   actionFinalize,
+  actionCommitHandwritingShape,
+  actionRestoreHandDrawn,
   actionFlipHorizontal,
   actionFlipVertical,
   actionGroup,
@@ -398,7 +404,9 @@ import {
 
 import { Fonts } from "../fonts";
 import { editorJotaiStore, type WritableAtom } from "../editor-jotai";
+
 import { ImageSceneDataError } from "../errors";
+
 import {
   getSnapLinesAtPointer,
   snapDraggedElements,
@@ -411,6 +419,7 @@ import {
   SnapCache,
   isGridModeEnabled,
 } from "../snapping";
+
 import { Renderer } from "../scene/Renderer";
 import {
   setEraserCursor,
@@ -434,6 +443,9 @@ import { EraserTrail } from "../eraser";
 import { getShortcutKey } from "../shortcut";
 
 import { tryParseSpreadsheet } from "../charts";
+
+import { ShapePreviewTrail } from "./ShapePreviewTrail";
+import { handwritingRestoreAtom } from "./HandwritingShapeCommit";
 
 import ConvertElementTypePopup, {
   getConversionTypeFromElements,
@@ -504,6 +516,13 @@ import type { Action, ActionResult } from "../actions/types";
 
 const AppContext = React.createContext<AppClassProperties>(null!);
 const AppPropsContext = React.createContext<AppProps>(null!);
+
+/** 停笔判定容差（SH-03）：约 6 CSS px，按 zoom 换算场景坐标。 */
+const HANDWRITING_HOLD_TOLERANCE_CSS_PX = 6;
+/** 识别最小包围盒对角线（SH-09），CSS px。 */
+const HANDWRITING_MIN_DIAGONAL_CSS_PX = 24;
+/** 规整后“恢复手绘”可用窗口（SH-06）。 */
+const HANDWRITING_RESTORE_WINDOW_MS = 5000;
 
 const editorInterfaceContextInitialValue: EditorInterface = {
   formFactor: "desktop",
@@ -708,6 +727,23 @@ class App extends React.Component<AppProps, AppState> {
   animationFrameHandler = new AnimationFrameHandler();
 
   laserTrails = new LaserTrails(this.animationFrameHandler, this);
+
+  /** Hold-to-shape state machine (idle → drawing → holding → preview). */
+  private handwritingHoldState: {
+    strokeId: string;
+    pointerId: number;
+    /** scene-coords anchor of the last significant movement (SH-02/03) */
+    anchor: { x: number; y: number } | null;
+    /** timestamp of the last significant movement */
+    anchorTime: number;
+    candidate: ShapeCandidate | null;
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null = null;
+
+  /** Ghost preview overlay for the recognized-shape candidate (SH-04). */
+  private handwritingShapePreview = new ShapePreviewTrail(this);
+
+  private handwritingCommitTimeout: ReturnType<typeof setTimeout> | null = null;
   eraserTrail = new EraserTrail(this.animationFrameHandler, this);
   lassoTrail = new LassoTrail(this.animationFrameHandler, this);
 
@@ -2217,6 +2253,7 @@ class App extends React.Component<AppProps, AppState> {
                               this.laserTrails,
                               this.lassoTrail,
                               this.eraserTrail,
+                              this.handwritingShapePreview,
                             ]}
                           />
                           {selectedElements.length === 1 &&
@@ -2851,6 +2888,8 @@ class App extends React.Component<AppProps, AppState> {
     isHoldingSpace = false;
     this.activePenPointerId = null;
     gesture.pointers.clear();
+    // window losing focus cancels hold-to-shape (SH-11)
+    this.cancelHandwritingHold();
     this.setState({
       isBindingEnabled: this.state.bindingPreference === "enabled",
     });
@@ -3207,6 +3246,11 @@ class App extends React.Component<AppProps, AppState> {
 
     this.renderer.destroy();
     this.scene.destroy();
+    this.cancelHandwritingHold();
+    if (this.handwritingCommitTimeout) {
+      clearTimeout(this.handwritingCommitTimeout);
+      this.handwritingCommitTimeout = null;
+    }
     this.scene = new Scene();
     this.fonts = new Fonts(this.scene);
     this.renderer = new Renderer(this.scene);
@@ -4780,6 +4824,14 @@ class App extends React.Component<AppProps, AppState> {
       }
 
       if (!isInputLike(event.target)) {
+        // Esc cancels a recognized-shape preview, keeping the freehand
+        // stroke (SH-05)
+        if (event.key === KEYS.ESCAPE && this.handwritingHoldState?.candidate) {
+          event.preventDefault();
+          this.clearHandwritingCandidate();
+          return;
+        }
+
         if (
           (event.key === KEYS.ESCAPE || event.key === KEYS.ENTER) &&
           this.state.croppingElementId
@@ -5541,6 +5593,8 @@ class App extends React.Component<AppProps, AppState> {
     },
     keepSelection = false,
   ) => {
+    // switching tools cancels any hold-to-shape candidate/timer (SH-11)
+    this.cancelHandwritingHold();
     if (!this.isToolSupported(tool.type)) {
       console.warn(
         `"${tool.type}" tool is disabled via "UIOptions.canvasActions.tools.${tool.type}"`,
@@ -8872,6 +8926,180 @@ class App extends React.Component<AppProps, AppState> {
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // Hold-to-shape (停笔规整, SH-01–SH-12)
+  // ---------------------------------------------------------------------------
+
+  private clearHandwritingCandidate = () => {
+    const hold = this.handwritingHoldState;
+    if (hold?.timer) {
+      clearTimeout(hold.timer);
+      hold.timer = null;
+    }
+    if (hold?.candidate) {
+      hold.candidate = null;
+      this.handwritingShapePreview.setCandidate(null);
+      if (this.state.toast) {
+        this.setState({ toast: null });
+      }
+    }
+  };
+
+  private cancelHandwritingHold = () => {
+    if (this.handwritingHoldState?.timer) {
+      clearTimeout(this.handwritingHoldState.timer);
+    }
+    this.handwritingHoldState = null;
+    this.handwritingShapePreview.setCandidate(null);
+  };
+
+  private scheduleHandwritingRecognition = (delayMs: number) => {
+    const hold = this.handwritingHoldState;
+    if (!hold) {
+      return;
+    }
+    if (hold.timer) {
+      clearTimeout(hold.timer);
+    }
+    hold.timer = setTimeout(this.fireHandwritingRecognition, delayMs);
+  };
+
+  private dwellDelayMs = () =>
+    Math.min(3, Math.max(0.5, this.state.currentItemShapeRecognitionDelay)) *
+    1000;
+
+  private beginHandwritingHold = (
+    strokeId: string,
+    pointerId: number,
+    sceneX: number,
+    sceneY: number,
+  ) => {
+    this.cancelHandwritingHold();
+    if (!this.state.currentItemShapeRecognition) {
+      return;
+    }
+    this.handwritingHoldState = {
+      strokeId,
+      pointerId,
+      anchor: { x: sceneX, y: sceneY },
+      anchorTime: Date.now(),
+      candidate: null,
+      timer: null,
+    };
+    // the dwell window starts at the last effective movement (SH-02); for a
+    // stroke that ends without further moves, that is the pointerdown
+    this.scheduleHandwritingRecognition(this.dwellDelayMs());
+  };
+
+  private updateHandwritingHold = (pointerCoords: { x: number; y: number }) => {
+    const hold = this.handwritingHoldState;
+    const element = this.state.newElement;
+    if (
+      !hold ||
+      !element ||
+      element.id !== hold.strokeId ||
+      element.type !== "freedraw" ||
+      element.isDeleted ||
+      !this.state.currentItemShapeRecognition
+    ) {
+      return;
+    }
+    const now = Date.now();
+    const tolerance = HANDWRITING_HOLD_TOLERANCE_CSS_PX / this.state.zoom.value;
+    const anchor = hold.anchor;
+    if (
+      !anchor ||
+      Math.hypot(pointerCoords.x - anchor.x, pointerCoords.y - anchor.y) >
+        tolerance
+    ) {
+      // significant movement: restart the dwell window (SH-02/SH-05)
+      hold.anchor = { x: pointerCoords.x, y: pointerCoords.y };
+      hold.anchorTime = now;
+      this.clearHandwritingCandidate();
+      this.scheduleHandwritingRecognition(this.dwellDelayMs());
+    }
+    // in-tolerance movement (including pressure-only changes): the dwell
+    // window keeps running (SH-03)
+  };
+
+  private fireHandwritingRecognition = () => {
+    const hold = this.handwritingHoldState;
+    if (!hold) {
+      return;
+    }
+    hold.timer = null;
+    // revalidate: only the current, still-in-progress stroke may be tidied
+    // (SH-11: never touch a previous stroke from a stale timer callback)
+    const element = this.state.newElement;
+    if (
+      !hold ||
+      !element ||
+      element.id !== hold.strokeId ||
+      element.type !== "freedraw" ||
+      element.isDeleted
+    ) {
+      return;
+    }
+    const scenePoints = element.points.map(
+      ([x, y]) => [element.x + x, element.y + y] as [number, number],
+    );
+    const candidate = recognizeShape(scenePoints, {
+      minDiagonal: HANDWRITING_MIN_DIAGONAL_CSS_PX / this.state.zoom.value,
+    });
+    if (candidate) {
+      hold.candidate = candidate;
+      this.handwritingShapePreview.setCandidate({
+        candidate,
+        strokeColor: element.strokeColor,
+        strokeWidth: element.strokeWidth,
+      });
+      // NOTE: no setState here — an appState change would split the undo
+      // history around the commit. The preview label ("Line · lift to
+      // confirm") is the low-interference prompt required by SH-04.
+    }
+  };
+
+  /** Swap the tidied shape back to the original hand-drawn stroke (SH-06). */
+  public restoreHandDrawn = () => {
+    const commit = editorJotaiStore.get(handwritingRestoreAtom);
+    if (!commit) {
+      return;
+    }
+    editorJotaiStore.set(handwritingRestoreAtom, null);
+    const shape = this.scene
+      .getElementsIncludingDeleted()
+      .find((element) => element.id === commit.shapeId);
+    if (!shape || shape.isDeleted) {
+      // user already undid the commit
+      return;
+    }
+    this.actionManager.executeAction(actionRestoreHandDrawn, "ui", {
+      shapeId: commit.shapeId,
+      strokeId: commit.strokeId,
+    });
+  };
+
+  private scheduleHandwritingRestoreWindow = (
+    shapeId: string,
+    strokeId: string,
+  ) => {
+    if (this.handwritingCommitTimeout) {
+      clearTimeout(this.handwritingCommitTimeout);
+    }
+    editorJotaiStore.set(handwritingRestoreAtom, {
+      shapeId,
+      strokeId,
+      at: Date.now(),
+    });
+    this.handwritingCommitTimeout = setTimeout(() => {
+      this.handwritingCommitTimeout = null;
+      const current = editorJotaiStore.get(handwritingRestoreAtom);
+      if (current?.shapeId === shapeId) {
+        editorJotaiStore.set(handwritingRestoreAtom, null);
+      }
+    }, HANDWRITING_RESTORE_WINDOW_MS);
+  };
+
   private handleFreeDrawElementOnPointerDown = (
     event: React.PointerEvent<HTMLElement>,
     elementType: ExcalidrawFreeDrawElement["type"],
@@ -8925,6 +9153,7 @@ class App extends React.Component<AppProps, AppState> {
     });
 
     this.scene.insertElement(element);
+    this.beginHandwritingHold(element.id, event.pointerId, gridX, gridY);
 
     this.setState((prevState) => {
       const nextSelectedElementIds = {
@@ -9540,6 +9769,14 @@ class App extends React.Component<AppProps, AppState> {
     pointerDownState: PointerDownState,
   ): (event: KeyboardEvent) => void {
     return withBatchedUpdates((event: KeyboardEvent) => {
+      // Esc cancels a recognized-shape preview while drawing, keeping the
+      // freehand stroke (SH-05). Handled here (not only in the global
+      // onKeyDown) so it also works without `handleKeyboardGlobally`.
+      if (event.key === KEYS.ESCAPE && this.handwritingHoldState?.candidate) {
+        event.preventDefault();
+        this.clearHandwritingCandidate();
+        return;
+      }
       if (this.maybeHandleResize(pointerDownState, event)) {
         return;
       }
@@ -10289,6 +10526,8 @@ class App extends React.Component<AppProps, AppState> {
               newElement,
             });
           }
+
+          this.updateHandwritingHold(pointerCoords);
         } else if (isLinearElement(newElement) && !newElement.isDeleted) {
           pointerDownState.drag.hasOccurred = true;
           const points = newElement.points;
@@ -10737,6 +10976,25 @@ class App extends React.Component<AppProps, AppState> {
           points: [...points, pointFrom<LocalPoint>(dx, dy)],
           pressures,
         });
+
+        // Hold-to-shape: lift the pen on a recognized candidate → commit the
+        // tidied shape atomically (single undoable history entry, SH-05/06).
+        // Otherwise fall through to the normal freedraw finalize.
+        const holdCandidate = this.handwritingHoldState?.candidate ?? null;
+        this.cancelHandwritingHold();
+        if (this.state.toast) {
+          this.setState({ toast: null });
+        }
+        if (holdCandidate) {
+          const shapeId = nanoid();
+          this.scheduleHandwritingRestoreWindow(shapeId, newElement.id);
+          this.actionManager.executeAction(actionCommitHandwritingShape, "ui", {
+            strokeId: newElement.id,
+            candidate: holdCandidate,
+            shapeId,
+          });
+          return;
+        }
 
         this.actionManager.executeAction(actionFinalize);
 

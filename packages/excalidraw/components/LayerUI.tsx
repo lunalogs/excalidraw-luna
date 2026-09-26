@@ -33,6 +33,7 @@ import {
   CompactShapeActions,
 } from "./Actions";
 import { HandwritingEraserPanel } from "./HandwritingBrushPanel";
+import { HandwritingRestoreButton } from "./HandwritingRestoreButton";
 import { LoadingMessage } from "./LoadingMessage";
 import { LockButton } from "./LockButton";
 import { MobileMenu } from "./MobileMenu";
@@ -327,6 +328,7 @@ const LayerUI = ({
                     </Island>
                   </Section>
                 )}
+              <HandwritingRestoreButton />
             </div>
           </Stack.Col>
           {!appState.viewModeEnabled &&
