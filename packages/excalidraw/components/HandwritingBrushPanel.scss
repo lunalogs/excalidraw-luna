@@ -150,6 +150,39 @@
     font-size: 0.8rem;
     color: var(--color-warning, #b8860b);
   }
+
+  &__naming {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+
+    input[type="text"] {
+      flex: 1;
+      min-width: 8rem;
+      min-height: 44px;
+      font: inherit;
+      color: inherit;
+      background: transparent;
+      border: 1px solid var(--default-border-color, #d6d6d6);
+      border-radius: 6px;
+      padding: 0 0.4rem;
+    }
+  }
+
+  &__unsaved {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.5rem;
+    border: 1px solid var(--color-warning, #b8860b);
+    border-radius: 6px;
+
+    p {
+      margin: 0;
+      font-size: 0.85rem;
+    }
+  }
 }
 
 .handwriting-test-area {

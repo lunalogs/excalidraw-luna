@@ -7,9 +7,16 @@ import { getDefaultBrushConfig } from "@excalidraw/element/handwriting/brushPara
 import type { HandwritingBrushKind } from "@excalidraw/element/handwriting/types";
 
 import {
-  getDefaultPresetLibrary,
+  BRUSH_PRESETS_FILE_EXTENSION,
+  createPresetLibrary,
+  exportPresetsToJSON,
+  importPresetsFromJSON,
+  MAX_PERSONAL_PRESETS,
+  validatePresetName,
   type BrushPreset,
+  type BrushPresetInput,
 } from "../handwriting/brushPresets";
+import { fileOpen, fileSave } from "../data/filesystem";
 
 import { useI18n } from "../i18n";
 
@@ -313,16 +320,28 @@ export const HandwritingBrushPanel = () => {
   const { t } = useI18n();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [persistWarning, setPersistWarning] = useState(false);
+  const [presetMessage, setPresetMessage] = useState("");
+  // pending preset switch while the current settings are modified (PRE-03)
+  const [pendingSwitch, setPendingSwitch] = useState<BrushPreset | null>(null);
+  // inline naming dialog: save-as new preset or rename existing one
+  const [naming, setNaming] = useState<{
+    mode: "save-as" | "rename";
+    presetId?: string;
+    name: string;
+  } | null>(null);
+
+  // One library instance per panel mount: reads the latest persisted state
+  // on open and keeps in-memory state stable while the panel is visible.
+  const [library] = useState(() => createPresetLibrary());
 
   useEffect(() => {
-    if (getDefaultPresetLibrary().getPersistError()) {
+    if (library.getPersistError()) {
       // Surface once per mount (PRE-04: no fake success).
       setPersistWarning(true);
     }
-  }, []);
+  }, [library]);
 
   const settings = getCurrentBrushSettings(state);
-  const library = getDefaultPresetLibrary();
 
   const presets: BrushPreset[] = [
     ...library.getBuiltinPresets(),
@@ -381,6 +400,186 @@ export const HandwritingBrushPanel = () => {
       currentItemNibAngle: preset.config.nibAngle,
       currentItemStabilization: preset.config.stabilization,
     });
+  };
+
+  // -------------------------------------------------------------------------
+  // Personal preset management (M3 / PRE-01–PRE-06)
+  // -------------------------------------------------------------------------
+
+  const settingsToPresetInput = (name: string): BrushPresetInput => ({
+    name,
+    brushKind: settings.brushKind,
+    strokeWidth: settings.strokeWidth,
+    strokeColor: settings.strokeColor,
+    opacity: settings.opacity,
+    config: {
+      schemaVersion: 1,
+      brushKind: settings.brushKind,
+      pressureAmount: settings.pressureAmount,
+      pressureSensitivity: settings.pressureSensitivity,
+      nibFlatness: settings.nibFlatness,
+      nibAngle: settings.nibAngle,
+      stabilization: settings.stabilization,
+    },
+  });
+
+  const personalNames = () => library.list().map((preset) => preset.name);
+
+  const validateNameForUi = (name: string): string | null => {
+    const result = validatePresetName(name, personalNames());
+    if (result.ok) {
+      return null;
+    }
+    if (result.error.includes("already exists")) {
+      return t("handwriting.presetNameDuplicate");
+    }
+    return t("handwriting.presetNameRequired");
+  };
+
+  const confirmNaming = () => {
+    if (!naming) {
+      return;
+    }
+    const nameError = validateNameForUi(naming.name);
+    if (nameError) {
+      setPresetMessage(nameError);
+      return;
+    }
+    if (naming.mode === "save-as") {
+      if (library.list().length >= MAX_PERSONAL_PRESETS) {
+        setPresetMessage(t("handwriting.presetLimitReached"));
+        return;
+      }
+      const result = library.add(settingsToPresetInput(naming.name.trim()), {
+        onNameConflict: "error",
+      });
+      if (!result.ok) {
+        setPresetMessage(t("handwriting.presetNameDuplicate"));
+        return;
+      }
+      setState({ currentItemBrushPreset: result.preset.id });
+      setPresetMessage("");
+      // a save triggered from a pending switch completes the switch (PRE-03)
+      if (pendingSwitch) {
+        const target = pendingSwitch;
+        setPendingSwitch(null);
+        applyPreset(target);
+      }
+    } else if (naming.presetId) {
+      const result = library.rename(naming.presetId, naming.name.trim(), {
+        onNameConflict: "error",
+      });
+      if (!result.ok) {
+        setPresetMessage(t("handwriting.presetNameDuplicate"));
+        return;
+      }
+      setPresetMessage("");
+    }
+    setNaming(null);
+  };
+
+  const updateActivePreset = () => {
+    if (!activePreset || activePreset.id.startsWith("builtin-")) {
+      return;
+    }
+    const result = library.update(
+      activePreset.id,
+      settingsToPresetInput(activePreset.name),
+    );
+    if (!result.ok) {
+      setPresetMessage(t("handwriting.presetsNotPersisted"));
+      return;
+    }
+    setPresetMessage("");
+    if (pendingSwitch) {
+      const target = pendingSwitch;
+      setPendingSwitch(null);
+      applyPreset(target);
+    }
+  };
+
+  const deletePreset = (preset: BrushPreset) => {
+    if (!library.remove(preset.id)) {
+      return;
+    }
+    if (state.currentItemBrushPreset === preset.id) {
+      // PRE-03: fall back to the built-in default of the current brush kind
+      const fallback = library.get(`builtin-${settings.brushKind}`);
+      if (fallback) {
+        applyPreset(fallback);
+      }
+    }
+    setPresetMessage(t("handwriting.presetDeletedFallback"));
+  };
+
+  const duplicatePreset = (preset: BrushPreset) => {
+    const result = library.duplicate(preset.id);
+    setPresetMessage(result.ok ? "" : result.errors.join(" "));
+  };
+
+  const exportPresets = async () => {
+    try {
+      const personal = library.list();
+      const file = new File(
+        [exportPresetsToJSON(personal)],
+        `brush-presets.${BRUSH_PRESETS_FILE_EXTENSION}`,
+        { type: "application/json" },
+      );
+      await fileSave(file, {
+        name: "brush-presets",
+        extension: "json",
+        description: "Excalidraw brush presets",
+      });
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "AbortError")) {
+        setPresetMessage(t("handwriting.presetsExportFailed"));
+      }
+    }
+  };
+
+  const importPresets = async () => {
+    let file: File;
+    try {
+      file = await fileOpen({
+        extensions: ["json"],
+        description: "Excalidraw brush presets",
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return;
+      }
+      setPresetMessage(t("handwriting.presetsImportFailed"));
+      return;
+    }
+    try {
+      const result = importPresetsFromJSON(await file.text(), library.list(), {
+        onNameConflict: "suffix",
+      });
+      if (!result.ok) {
+        setPresetMessage(t("handwriting.presetsImportFailed"));
+        return;
+      }
+      let added = 0;
+      for (const preset of result.presets) {
+        const addResult = library.add(
+          {
+            name: preset.name,
+            brushKind: preset.brushKind,
+            strokeWidth: preset.strokeWidth,
+            strokeColor: preset.strokeColor,
+            opacity: preset.opacity,
+            config: preset.config,
+          },
+          { onNameConflict: "suffix" },
+        );
+        if (addResult.ok) {
+          added++;
+        }
+      }
+      setPresetMessage(t("handwriting.presetsImported", { count: added }));
+    } catch (error) {
+      setPresetMessage(t("handwriting.presetsImportFailed"));
+    }
   };
 
   const erasing = state.activeTool.type === "eraser";
@@ -474,7 +673,13 @@ export const HandwritingBrushPanel = () => {
           value={activePreset && !isModified ? activePreset.id : "__current__"}
           onChange={(event) => {
             const preset = presets.find((p) => p.id === event.target.value);
-            if (preset) {
+            if (!preset) {
+              return;
+            }
+            // PRE-03: ask before losing unsaved modifications
+            if (isModified) {
+              setPendingSwitch(preset);
+            } else {
               applyPreset(preset);
             }
           }}
@@ -500,6 +705,154 @@ export const HandwritingBrushPanel = () => {
           </span>
         )}
       </label>
+
+      {(isModified || !activePreset) && (
+        <div className="handwriting-brush-panel__row">
+          <button
+            type="button"
+            className="handwriting-brush-panel__brush"
+            onClick={() =>
+              setNaming({ mode: "save-as", name: activePreset?.name ?? "" })
+            }
+          >
+            {t("handwriting.savePreset")}
+          </button>
+          {activePreset && !activePreset.id.startsWith("builtin-") && (
+            <button
+              type="button"
+              className="handwriting-brush-panel__brush"
+              onClick={updateActivePreset}
+            >
+              {t("handwriting.updatePreset")}
+            </button>
+          )}
+        </div>
+      )}
+
+      {activePreset && !activePreset.id.startsWith("builtin-") && (
+        <div className="handwriting-brush-panel__row">
+          <button
+            type="button"
+            className="handwriting-brush-panel__brush"
+            onClick={() =>
+              setNaming({
+                mode: "rename",
+                presetId: activePreset.id,
+                name: activePreset.name,
+              })
+            }
+          >
+            {t("handwriting.renamePreset")}
+          </button>
+          <button
+            type="button"
+            className="handwriting-brush-panel__brush"
+            onClick={() => duplicatePreset(activePreset)}
+          >
+            {t("handwriting.duplicatePreset")}
+          </button>
+          <button
+            type="button"
+            className="handwriting-brush-panel__brush"
+            onClick={() => deletePreset(activePreset)}
+          >
+            {t("handwriting.deletePreset")}
+          </button>
+        </div>
+      )}
+
+      <div className="handwriting-brush-panel__row">
+        <button
+          type="button"
+          className="handwriting-brush-panel__brush"
+          onClick={importPresets}
+        >
+          {t("handwriting.importPresets")}
+        </button>
+        <button
+          type="button"
+          className="handwriting-brush-panel__brush"
+          onClick={exportPresets}
+        >
+          {t("handwriting.exportPresets")}
+        </button>
+      </div>
+
+      {naming && (
+        <div className="handwriting-brush-panel__naming">
+          <input
+            type="text"
+            aria-label={t("handwriting.presetNamePlaceholder")}
+            placeholder={t("handwriting.presetNamePlaceholder")}
+            value={naming.name}
+            onChange={(event) =>
+              setNaming({ ...naming, name: event.target.value })
+            }
+          />
+          <button
+            type="button"
+            className="handwriting-brush-panel__brush"
+            onClick={confirmNaming}
+          >
+            {t("handwriting.save")}
+          </button>
+          <button
+            type="button"
+            className="handwriting-brush-panel__brush"
+            onClick={() => setNaming(null)}
+          >
+            {t("handwriting.cancel")}
+          </button>
+        </div>
+      )}
+
+      {pendingSwitch && (
+        <div className="handwriting-brush-panel__unsaved" role="alertdialog">
+          <p>{t("handwriting.unsavedChangesDescription")}</p>
+          <div className="handwriting-brush-panel__row">
+            <button
+              type="button"
+              className="handwriting-brush-panel__brush"
+              onClick={() => {
+                if (activePreset && !activePreset.id.startsWith("builtin-")) {
+                  updateActivePreset();
+                } else {
+                  setNaming({
+                    mode: "save-as",
+                    name: activePreset?.name ?? "",
+                  });
+                }
+              }}
+            >
+              {t("handwriting.save")}
+            </button>
+            <button
+              type="button"
+              className="handwriting-brush-panel__brush"
+              onClick={() => {
+                const target = pendingSwitch;
+                setPendingSwitch(null);
+                applyPreset(target);
+              }}
+            >
+              {t("handwriting.discard")}
+            </button>
+            <button
+              type="button"
+              className="handwriting-brush-panel__brush"
+              onClick={() => setPendingSwitch(null)}
+            >
+              {t("handwriting.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {presetMessage && (
+        <p role="status" className="handwriting-brush-panel__warning">
+          {presetMessage}
+        </p>
+      )}
 
       {slider(
         t("handwriting.width"),

@@ -312,9 +312,12 @@ const createBuiltinPresets = (): readonly BrushPreset[] =>
     id: `builtin-${kind}`,
     name: BUILTIN_PRESET_NAMES[kind] ?? kind,
     brushKind: kind,
-    strokeWidth: kind === "highlighter" ? 8 : kind === "fountain" ? 1.5 : 2,
-    strokeColor: kind === "highlighter" ? "#ffc300" : "#1e1e1e",
-    opacity: kind === "highlighter" ? 50 : 100,
+    // Keep these in sync with the brush panel defaults
+    // (HandwritingBrushPanel.tsx BUILTIN_* tables): selecting a built-in
+    // preset must not immediately show as "modified".
+    strokeWidth: kind === "highlighter" ? 6 : 1,
+    strokeColor: kind === "highlighter" ? "#fab005" : "#1b1b1f",
+    opacity: kind === "highlighter" ? 30 : 100,
     config: getDefaultBrushConfig(kind),
     updatedAt: 0,
   }));
