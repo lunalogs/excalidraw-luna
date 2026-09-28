@@ -807,6 +807,8 @@
     "presetsImportFailed": "Could not import presets: the file format is not valid.",
     "presetsImported": "Imported {{count}} presets.",
     "presetsExportFailed": "Could not export presets. Please try again.",
-    "presetsNotPersisted": "Presets could not be saved to local storage and may be lost after reload."
+    "presetsNotPersisted": "Presets could not be saved to local storage and may be lost after reload.",
+    "presetsSessionOnly": "Browser storage is unavailable. Presets are kept for this session only — export a backup now.",
+    "presetsRecovered": "Stored presets were corrupted: recovered {{kept}}, could not parse {{dropped}}. Export a backup to avoid losing them."
   }
 }

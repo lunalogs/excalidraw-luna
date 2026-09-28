@@ -784,6 +784,8 @@
     "presetsImportFailed": "预设导入失败：文件格式不正确。",
     "presetsImported": "已导入 {{count}} 个预设。",
     "presetsExportFailed": "预设导出失败，请重试。",
-    "presetsNotPersisted": "预设未能保存到本地存储，刷新后可能丢失。"
+    "presetsNotPersisted": "预设未能保存到本地存储，刷新后可能丢失。",
+    "presetsSessionOnly": "浏览器存储不可用，预设仅保留在本次会话中，建议立即导出备份。",
+    "presetsRecovered": "本地预设数据已损坏，已恢复 {{kept}} 个（{{dropped}} 个无法解析）。建议导出备份，以免丢失。"
   }
 }

@@ -1,6 +1,6 @@
 # 进度与修改记录索引
 
-最后更新：2026-09-25。M0–M5 全部完成（[0003](changes/0003-m0-baseline.md)–[0008](changes/0008-m5-integration-verification.md)），待 Codex review 与真机验收。
+最后更新：2026-09-28。Codex已复核0020，见 [0021](changes/0021-codex-k1-acceptance.md)。**K1代码验收通过，本轮未发现新的阻塞问题**：不同ID同名双方保留、限长后缀、同ID幂等及恢复下拉框更新已验证。指定25项通过；额外3项独立边界探针通过（Kimi 已将其纳入正式测试集 `handwriting-0021-review.test.tsx`）；全量115文件/1542通过、47跳过、1todo；tsc、全部28个修改/未跟踪源码严格lint、构建通过。此前代码修复链结合各轮复核记录可关闭，但iPad人工验收与A18真实性能仍未验证，不能宣称完整产品验收通过。HEAD仍为5e49d5a4，全部修改保留未提交/未推送。下一步按USER_SETUP.md真机验收，后续批次从0022开始。
 
 ## 代码基线
 
@@ -18,20 +18,20 @@
 | 第二阶段需求与验收规范 | 已交付文档 | [0002](changes/0002-kimi-handoff-plan.md) |
 | M0 基线确认 | 已完成 | [0003](changes/0003-m0-baseline.md)：base SHA `36638fff`，tsc 通过，103 文件/1350 测试通过，与 ACCEPTANCE §D 一致 |
 | M1 左上面板与独立文件入口 | 已完成 | [0004](changes/0004-m1-panel-reorganization.md)：双布局接通，左下入口删除，文件项入主菜单，6 项新 UI 测试 |
-| M2 四参数笔刷模型 | 已完成 | [0005](changes/0005-m2-brush-model.md)：四参数独立生效、共享轮廓、逐笔快照、legacy 逐位回归，23 项轮廓测试 |
-| M3 个人预设 | 已完成 | [0006](changes/0006-m3-personal-presets.md)：CRUD/未保存三选/JSON 备份 UI，7 项 UI 测试 + 43 项逻辑测试 |
-| M4 停笔规整 | 已完成 | [0007](changes/0007-m4-hold-to-shape.md)：状态机/预览/原子提交/恢复手绘，11 项端到端测试；真机手感未验证 |
-| M5 集成验收 | 已完成 | [0008](changes/0008-m5-integration-verification.md)：全量复验/构建/A01–A20 矩阵；A18 性能基准与真机项未验证 |
+| M2 四参数笔刷模型 | 代码修复已复核，真机待验 | [0005](changes/0005-m2-brush-model.md)：四参数独立生效、共享轮廓、逐笔快照、legacy 逐位回归，23 项轮廓测试 |
+| M3 个人预设 | 代码验收通过，真机待验 | [0006](changes/0006-m3-personal-presets.md)：CRUD/未保存三选/JSON 备份 UI，7 项 UI 测试 + 43 项逻辑测试 |
+| M4 停笔规整 | G1代码修复已复核，真机待验 | [0007](changes/0007-m4-hold-to-shape.md)：状态机/预览/原子提交/恢复手绘，11 项端到端测试；真机手感未验证 |
+| M5 集成验收 | 工程检查通过，真机/性能待验 | [0008](changes/0008-m5-integration-verification.md)：全量复验/构建/A01–A20 矩阵；A18 性能基准与真机项未验证 |
 | M6 原生 iPad App | 后续阶段 | 需设备/签名/分发方式，不阻塞网页 |
 
 Kimi 每一批都更新相关行并链接新记录。实现不完整写“部分完成”，设备未测写“未验证”，不得默认勾选所有需求。
 
-## 最终交付信息（Kimi 提交，待 Codex review）
+## Kimi 原始交付信息（审核结果以 0009 为准）
 
 - Kimi 工作分支：`luna-design`（本地工作分支，未推送；仓库 `lunalogs/excalidraw-luna`）
 - 实际 base SHA：`36638fff20494cc9a6b91186b2dca37c23be0802`（M0 检出）
-- 实际 head SHA：`ab4931c3`（M4 提交后）
-- 完整提交列表（按序）：`2f602d35` docs: record M0 baseline → `6e4432a0` feat: phase-two M1/M2 handwriting brush panel, brush engine, and per-stroke snapshots → `fddd89d1` feat: personal brush preset management UI with JSON backup → `ab4931c3` feat: hold-to-shape recognition with preview, atomic commit, and restore
+- 交接实际 head SHA：`5e49d5a4`（包括 M5 交接文档）；此前文档只记录到 `ab4931c3`，此处补正。
+- 完整提交列表（按序）：`2f602d35` docs: record M0 baseline → `6e4432a0` feat: phase-two M1/M2 handwriting brush panel, brush engine, and per-stroke snapshots → `fddd89d1` feat: personal brush preset management UI with JSON backup → `ab4931c3` feat: hold-to-shape recognition with preview, atomic commit, and restore → `5e49d5a4` docs: record M5 integration verification and final handoff info
 - 类型检查、全量测试、无快照更新的复验、lint、构建结果（2026-09-25，Node v22.19.0，均无 yarn，用 node_modules 等价入口）：
   - `node node_modules/typescript/bin/tsc --noEmit` → 0
   - `node node_modules/vitest/vitest.mjs run --update --watch=false` → 0（M1/M2 时 151 个快照更新，差异仅新增 appState 字段与两个主菜单项，已逐文件核查）
@@ -48,7 +48,38 @@ Kimi 每一批都更新相关行并链接新记录。实现不完整写“部分
   4. M4：预览叠层在按住期间不随缩放实时重绘（提交几何不受影响）；SH-12 计时语义用真实定时器边界测试替代虚拟时钟（0007）；1.2s 默认手感未真机验证
   5. 极端细长矩形（长宽比 >~4:1）识别保守返回 null；轴比 0.82–0.9 的椭圆落入圆/椭圆模糊区返回 null（识别模块报告，属“模糊时宁可不转换”）
   6. M6 原生 App 未做（按 SPEC 为后续独立阶段）
-- A01–A20 矩阵（另见交付回复正文）与 Codex review 结论：待 review
+- 原始 A01–A20 自评见 0008；Codex 审核修正见下表及 0009。
+
+## Codex 审核状态（2026-09-27）
+
+本批基于 `5e49d5a4` 的工作区修改，尚未提交/推送。记录：[0009](changes/0009-codex-review.md)。已修复压力 0.5 误判/压力单独变化、取消事件计时器、反向线坐标、未知版本降级、预设按钮切换保护、500px 左上入口。以下是产品验收状态，不等同于测试命令状态。
+
+| 验收 | 当前结论 | 证据/缺口 |
+| --- | --- | --- |
+| A01 | 自动化通过，人工部分验证 | 768/500px 组件用例；IAB 确认 500px 修复后入口可展开，未测全设备 |
+| A02 | 自动化通过 | 原逐笔快照、参数/工具切换用例；真实连续书写待测 |
+| A03 | 自动化通过，真机未验证 | 文件往返/图片/取消；iCloud 系统界面未测 |
+| A04 | 未通过 | 试写指针隔离 R4、触控/焦点证据 R6 |
+| A05 | 现有数值测试通过 | 模拟压力分支灵敏度另需验证；真机未测 |
+| A06 | 部分验证 | 现有几何用例通过；真实外观/导出对照未测 |
+| A07 | 未通过 | R1 轮廓边界与命中未接通 |
+| A08 | 部分修复 | 主画布 0.5/原地压变已测；R4/硬件降级与合并事件证据待补 |
+| A09 | 未通过 | R2 采样频率依赖，附可复现诊断 |
+| A10 | 自动化通过 | 新增未来版本降级；原往返与 legacy 用例通过 |
+| A11 | 未通过 | 已补预设切换确认；R5 存储不可用与坏数据提示待修 |
+| A12 | 现有自动化通过，人工未验证 | JSON 合并/冲突/备份；无自动上传代码改动 |
+| A13 | 部分验证 | 新增虚拟时钟，默认 1.2s/缩放边界待补 |
+| A14 | 部分验证 | 原候选取消/低置信样本通过，Pencil 真实文字待测 |
+| A15 | 自动化通过 | 一次撤销、重做、恢复手绘；共享恢复提示生命周期仍需 R6 |
+| A16 | 未通过 | 已修反向线；R3 转换后视觉线宽待修 |
+| A17 | 部分修复 | cancel/lostcapture/hidden 虚拟时钟通过；剩余生命周期 R6 |
+| A18 | 未验证完整交互性能 | 新增 Node 纯几何探针，不代表浏览器/iPad 性能 |
+| A19 | 代码审查未见新增上传 | 未做完整离线/Network 人工记录 |
+| A20 | 本批已补 | 记录原始失败与修复，补 head 索引/探针证据；截图录屏仍待补 |
+
+本批最终工程复验：109 文件、1476 passed、47 skipped、1 todo（不更新快照），tsc / ESLint / Prettier / build / diff-check 通过，详见 0009 的最终复验表。
+
+后续审核见0011–0013；当前待办以顶部0013摘要为准，下一批从0014开始。真实 iPad 项不得用桌面模拟代替。
 
 ## 记录规则
 

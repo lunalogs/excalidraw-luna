@@ -36,6 +36,9 @@ import type { Mutable } from "@excalidraw/common/utility-types";
 
 import { generateRoughOptions } from "./shape";
 import { ShapeCache } from "./shape";
+import { computeHandwritingOutline } from "./handwriting/outline";
+import { normalizeBrushConfig } from "./handwriting/brushParams";
+import { isHandwritingBrushKind } from "./handwriting/types";
 import { LinearElementEditor } from "./linearElementEditor";
 import { getBoundTextElement, getContainerElement } from "./textElement";
 import {
@@ -159,15 +162,57 @@ export class ElementBounds {
       elementsMap,
     );
     if (isFreeDrawElement(element)) {
-      const [minX, minY, maxX, maxY] = getBoundsFromPoints(
-        element.points.map(([x, y]) =>
-          pointRotateRads(
-            pointFrom(x, y),
-            pointFrom(cx - element.x, cy - element.y),
-            element.angle,
+      // R1/A07+F1: bounds come from the visible stroke outline (including nib
+      // width and flat-nib extent), not the bare centerline — a horizontal
+      // stroke otherwise yields zero height and wide ink falls outside the
+      // hit-test pre-filter. With rotation, EVERY outline vertex is rotated
+      // around the original pivot: the AABB's two diagonal corners miss the
+      // true extremes (F1: 28 outline vertices fell outside the reported
+      // bounds at 45°). The element position/rotation pivot is untouched.
+      const outline = computeHandwritingOutline({
+        points: element.points,
+        pressures: element.pressures,
+        size: element.strokeWidth * 4.25,
+        simulatePressure: element.simulatePressure,
+        config: normalizeBrushConfig(element.customData?.handwriting),
+        legacyBrushKind: isHandwritingBrushKind(
+          element.customData?.handwritingBrush,
+        )
+          ? element.customData.handwritingBrush
+          : null,
+      });
+      if (outline.length === 0) {
+        const [minX, minY, maxX, maxY] = getBoundsFromPoints(
+          element.points.map(([x, y]) =>
+            pointRotateRads(
+              pointFrom(x, y),
+              pointFrom(cx - element.x, cy - element.y),
+              element.angle,
+            ),
           ),
-        ),
-      );
+        );
+        return [
+          minX + element.x,
+          minY + element.y,
+          maxX + element.x,
+          maxY + element.y,
+        ];
+      }
+      const pivot = pointFrom(cx - element.x, cy - element.y);
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const [x, y] of outline) {
+        const [rx, ry] =
+          element.angle === 0
+            ? [x, y]
+            : pointRotateRads(pointFrom(x, y), pivot, element.angle);
+        minX = Math.min(minX, rx);
+        minY = Math.min(minY, ry);
+        maxX = Math.max(maxX, rx);
+        maxY = Math.max(maxY, ry);
+      }
 
       return [
         minX + element.x,

@@ -1,6 +1,11 @@
 import { getFreedrawOutlinePoints } from "../../shape";
 
-import { computeHandwritingOutline } from "../outline";
+import { normalizeBrushConfig } from "../brushParams";
+
+import {
+  computeHandwritingOutline,
+  getRepresentativeStrokeWidth,
+} from "../outline";
 
 import type { ExcalidrawFreeDrawElement } from "../../types";
 
@@ -480,5 +485,283 @@ describe("combined parameters", () => {
     const element = makeElement({ points: [], pressures: [] });
     const outline = outlineOf(element, makeConfig({ nibFlatness: 80 }));
     expect(allFinite(outline)).toBe(true);
+  });
+});
+
+it("does not interpret future brush versions as v1", () => {
+  const future = { ...makeConfig(), schemaVersion: 999 };
+  expect(normalizeBrushConfig(future)).toBeNull();
+  expect(future.schemaVersion).toBe(999);
+});
+
+// ---------------------------------------------------------------------------
+// R2 / A09 — stabilization must be decoupled from pointer event density
+// ---------------------------------------------------------------------------
+
+describe("stabilization density independence (R2/A09)", () => {
+  /** Two-period sine, 400px long, 50px amplitude. */
+  const sine = (count: number): [number, number][] => {
+    const pts: [number, number][] = [];
+    for (let i = 0; i < count; i++) {
+      const t = i / (count - 1);
+      pts.push([t * 400, Math.sin(t * Math.PI * 4) * 50]);
+    }
+    return pts;
+  };
+
+  const constantPressure = (count: number) => Array(count).fill(0.5);
+
+  const heavyConfig = makeConfig({
+    pressureAmount: 0,
+    pressureSensitivity: 50,
+    nibFlatness: 0,
+    stabilization: 100,
+  });
+
+  /** max over A of min distance to any point of B (point-cloud metric) */
+  const maxDirectedDistance = (a: Outline, b: Outline) => {
+    let max = 0;
+    for (const [x, y] of a) {
+      let min = Infinity;
+      for (const [u, v] of b) {
+        min = Math.min(min, Math.hypot(x - u, y - v));
+      }
+      max = Math.max(max, min);
+    }
+    return max;
+  };
+
+  it("identical geometry at 60/120/240Hz sampling produces nearly identical outlines", () => {
+    const outlines = [60, 120, 240].map((count) =>
+      computeHandwritingOutline({
+        points: sine(count),
+        pressures: constantPressure(count),
+        size: 4,
+        simulatePressure: false,
+        config: heavyConfig,
+      }),
+    );
+    for (let i = 1; i < outlines.length; i++) {
+      const deviation = Math.max(
+        maxDirectedDistance(outlines[i], outlines[0]),
+        maxDirectedDistance(outlines[0], outlines[i]),
+      );
+      expect(deviation).toBeLessThan(2);
+    }
+  });
+
+  it("stabilization 0 keeps the raw path (no extra filtering)", () => {
+    const points = sine(120);
+    const raw = computeHandwritingOutline({
+      points,
+      pressures: constantPressure(120),
+      size: 4,
+      simulatePressure: false,
+      config: makeConfig({ pressureAmount: 0, stabilization: 0 }),
+    });
+    // with amount 0 and no stabilization, the centerline must pass through
+    // the original samples (outline symmetric around the raw path)
+    const centerX = (bbox(raw).minX + bbox(raw).maxX) / 2;
+    const atMid = raw.filter(([x]) => Math.abs(x - centerX) < 8);
+    const midSampleY = points[Math.floor(points.length / 2)][1];
+    const ys = atMid.map(([, y]) => y);
+    expect(Math.min(...ys)).toBeLessThanOrEqual(midSampleY + 8);
+    expect(Math.max(...ys)).toBeGreaterThanOrEqual(midSampleY - 8);
+  });
+
+  it("recomputing on the same persisted points is consistent (no re-stabilization)", () => {
+    const points = sine(240);
+    const first = computeHandwritingOutline({
+      points,
+      pressures: constantPressure(240),
+      size: 4,
+      simulatePressure: false,
+      config: heavyConfig,
+    });
+    const second = computeHandwritingOutline({
+      points,
+      pressures: constantPressure(240),
+      size: 4,
+      simulatePressure: false,
+      config: heavyConfig,
+    });
+    expect(second).toEqual(first);
+  });
+
+  it("pressure changes at a fixed position survive resampling", () => {
+    // light half, a zero-length pressure jump, then a heavy half
+    const outline = computeHandwritingOutline({
+      points: [
+        [0, 0],
+        [100, 0],
+        [100, 0],
+        [200, 0],
+      ],
+      pressures: [0.2, 0.2, 0.9, 0.9],
+      size: 4,
+      simulatePressure: false,
+      config: makeConfig({ pressureAmount: 100, stabilization: 50 }),
+    });
+    const left = outline.filter(([x]) => x < 90);
+    const right = outline.filter(([x]) => x > 110);
+    expect(bbox(right).height).toBeGreaterThan(bbox(left).height + 1);
+    expect(allFinite(outline)).toBe(true);
+  });
+});
+
+describe("bounded resampling and zero stabilization (R2/F6)", () => {
+  it("bounds output samples for extremely long segments", () => {
+    // 3 points, one segment ~1e8 units long: output must stay within budget
+    const outline = computeHandwritingOutline({
+      points: [
+        [0, 0],
+        [1e8, 0],
+        [1e8, 1],
+      ],
+      pressures: [0.5, 0.5, 0.5],
+      size: 8.5,
+      simulatePressure: false,
+      config: {
+        schemaVersion: 1,
+        brushKind: "standard",
+        pressureAmount: 0,
+        pressureSensitivity: 50,
+        nibFlatness: 0,
+        nibAngle: 45,
+        stabilization: 100,
+      },
+    });
+    expect(outline.length).toBeLessThanOrEqual(4096);
+    expect(allFinite(outline)).toBe(true);
+  });
+
+  it("keeps large-but-finite coordinates stable and finite", () => {
+    const outline = computeHandwritingOutline({
+      points: [
+        [1e6, 1e6],
+        [1e6 + 500, 1e6],
+        [1e6 + 500, 1e6 + 500],
+      ],
+      pressures: [0.4, 0.6, 0.8],
+      size: 8.5,
+      simulatePressure: false,
+      config: {
+        schemaVersion: 1,
+        brushKind: "standard",
+        pressureAmount: 60,
+        pressureSensitivity: 50,
+        nibFlatness: 40,
+        nibAngle: 30,
+        stabilization: 80,
+      },
+    });
+    expect(allFinite(outline)).toBe(true);
+    expect(outline.length).toBeGreaterThan(3);
+  });
+
+  it("stabilization 0 passes zero streamline (no filtering at all)", () => {
+    const points: [number, number][] = [
+      [0, 0],
+      [40, 0],
+      [80, 0],
+    ];
+    const pressures = [0.5, 0.5, 0.5];
+    const zero = computeHandwritingOutline({
+      points,
+      pressures,
+      size: 4,
+      simulatePressure: false,
+      config: {
+        schemaVersion: 1,
+        brushKind: "standard",
+        pressureAmount: 0,
+        pressureSensitivity: 50,
+        nibFlatness: 0,
+        nibAngle: 45,
+        stabilization: 0,
+      },
+    });
+    // amount 0 + streamline 0: the centerline is the raw polyline itself, so
+    // the outline is symmetric around y=0 and contains the endpoints' extent
+    const ys = zero.map(([, y]) => y);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(2.001);
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(-2.001);
+  });
+});
+
+describe("representative width on closed contours (G1/A16)", () => {
+  const closedShape = (
+    radiusX: number,
+    radiusY: number,
+    overrides: Partial<HandwritingBrushConfig> = {},
+  ) => {
+    const points: [number, number][] = [];
+    const count = 121;
+    for (let i = 0; i <= count; i++) {
+      const a = (i / count) * Math.PI * 2;
+      points.push([200 + radiusX * Math.cos(a), 200 + radiusY * Math.sin(a)]);
+    }
+    return {
+      points,
+      pressures: Array(points.length).fill(0.5),
+      strokeWidth: 2,
+      simulatePressure: false,
+      customData: {
+        handwriting: makeConfig({ ...overrides }),
+      },
+    };
+  };
+
+  it("circle ink reports its own thickness, not the diameter", () => {
+    for (const radius of [30, 60, 100]) {
+      const width = getRepresentativeStrokeWidth(closedShape(radius, radius));
+      // nominal ink thickness is 8.5px; the old code returned ~2×diameter
+      expect(width).toBeGreaterThan(7);
+      expect(width).toBeLessThan(11);
+    }
+  });
+
+  it("ellipse and closed rectangle report local ink thickness", () => {
+    expect(getRepresentativeStrokeWidth(closedShape(60, 30))).toBeLessThan(11);
+    expect(getRepresentativeStrokeWidth(closedShape(60, 30))).toBeGreaterThan(
+      7,
+    );
+    // hand-drawn rectangle (sharp corners, closed)
+    const rect: [number, number][] = [
+      [0, 0],
+      [100, 0],
+      [100, 60],
+      [0, 60],
+      [0, 0],
+    ];
+    const width = getRepresentativeStrokeWidth({
+      points: rect,
+      pressures: rect.map(() => 0.5),
+      strokeWidth: 2,
+      simulatePressure: false,
+      customData: { handwriting: makeConfig() },
+    });
+    expect(width).toBeGreaterThan(7);
+    expect(width).toBeLessThan(11);
+  });
+
+  it("flat nib on a closed circle is bounded by the local anisotropic ink", () => {
+    const width = getRepresentativeStrokeWidth(
+      closedShape(60, 60, {
+        brushKind: "highlighter",
+        pressureAmount: 0,
+        nibFlatness: 70,
+      }),
+    );
+    // between the minor and major axis thickness of the ring ink
+    expect(width).toBeGreaterThan(2);
+    expect(width).toBeLessThan(12);
+  });
+
+  it("variable pressure stays bounded on closed shapes", () => {
+    const shape = closedShape(60, 60, { pressureAmount: 100 });
+    const width = getRepresentativeStrokeWidth(shape);
+    expect(width).toBeGreaterThan(6);
+    expect(width).toBeLessThan(14);
   });
 });

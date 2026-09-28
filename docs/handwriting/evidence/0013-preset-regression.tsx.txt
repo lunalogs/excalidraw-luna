@@ -1,0 +1,50 @@
+import { pointFrom } from "@excalidraw/math";
+
+import {
+  getElementBounds,
+  getElementAbsoluteCoords,
+} from "@excalidraw/element";
+import { getDefaultBrushConfig } from "@excalidraw/element/handwriting/brushParams";
+import {
+  getFreedrawOutlinePointsForElement,
+  getRepresentativeStrokeWidth,
+} from "@excalidraw/element/handwriting/outline";
+
+import type { ExcalidrawFreeDrawElement } from "@excalidraw/element/types";
+import type { LocalPoint } from "@excalidraw/math";
+
+import { Excalidraw } from "../index";
+
+import { API } from "./helpers/api";
+import { UI } from "./helpers/ui";
+import { fireEvent, render, screen } from "./test-utils";
+
+const h = window.h;
+beforeEach(async () => {
+  localStorage.clear();
+  await render(<Excalidraw />);
+  API.setAppState({ width: 1024, height: 768 });
+});
+afterEach(() => vi.restoreAllMocks());
+
+it("0013: quota-failed preset survives closing and reopening the panel", () => {
+  const originalSet = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (key, value) {
+    if (key.endsWith(".probe")) return originalSet.call(this, key, value);
+    throw new DOMException("full", "QuotaExceededError");
+  });
+  UI.clickTool("freedraw");
+  fireEvent.click(screen.getByRole("button", { name: "Save as new preset" }));
+  fireEvent.change(screen.getByLabelText("Preset name"), {
+    target: { value: "Quota session pen" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(
+    screen.getByRole("option", { name: "Quota session pen" }),
+  ).toBeInTheDocument();
+  UI.clickTool("rectangle");
+  UI.clickTool("freedraw");
+  expect(
+    screen.queryByRole("option", { name: "Quota session pen" }),
+  ).not.toBeNull();
+});

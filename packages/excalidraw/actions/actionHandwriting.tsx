@@ -7,6 +7,8 @@ import {
   newLinearElement,
 } from "@excalidraw/element";
 
+import { getRepresentativeStrokeWidth } from "@excalidraw/element/handwriting/outline";
+
 import type { LocalPoint, Radians } from "@excalidraw/math";
 import type { ShapeCandidate } from "@excalidraw/element/handwriting/shapeRecognition";
 import type {
@@ -34,19 +36,21 @@ const buildShapeElement = (
   shapeId: ExcalidrawElement["id"],
 ): ExcalidrawElement => {
   const geometry = candidate.geometry;
-  // The tidied shape inherits the stroke's color / opacity / width so the
-  // visual weight stays close to the hand-drawn stroke (SH-07). Roughness 0
-  // keeps the geometry clean; variable-width / flat-nib effects have no
-  // native-geometry equivalent and are expressed as a constant stroke.
+  // The tidied shape inherits the stroke's color / opacity; its width is the
+  // representative *visual* width of the hand stroke (R3/A16) so the result
+  // stays close to the ink instead of collapsing to the base strokeWidth.
+  // Roughness 0 keeps the geometry clean; variable-width / flat-nib effects
+  // have no native-geometry equivalent and are expressed as a constant
+  // stroke (the anisotropic part is lossy, recorded in 0010).
   const base = {
     backgroundColor: "transparent" as const,
     fillStyle: "solid" as const,
     strokeColor: stroke.strokeColor,
     strokeStyle: "solid" as const,
-    strokeWidth: stroke.strokeWidth,
+    strokeWidth: getRepresentativeStrokeWidth(stroke),
     roughness: 0,
     opacity: stroke.opacity,
-    groupIds: [],
+    groupIds: [...stroke.groupIds],
     frameId: stroke.frameId,
     roundness: null,
     locked: false,
@@ -56,19 +60,20 @@ const buildShapeElement = (
   let element;
   switch (geometry.kind) {
     case "line": {
-      // normalize the bounding box like the rest of the app expects; the
-      // user's direction is preserved in the point order (SH-10)
-      const minX = Math.min(geometry.x1, geometry.x2);
-      const minY = Math.min(geometry.y1, geometry.y2);
+      // Linear elements anchor their first local point at [0, 0]. The
+      // second point may be negative: that preserves the drawn direction.
       element = newLinearElement({
         type: "line",
-        x: minX,
-        y: minY,
+        x: geometry.x1,
+        y: geometry.y1,
         width: Math.abs(geometry.x2 - geometry.x1),
         height: Math.abs(geometry.y2 - geometry.y1),
         points: [
-          pointFrom<LocalPoint>(geometry.x1 - minX, geometry.y1 - minY),
-          pointFrom<LocalPoint>(geometry.x2 - minX, geometry.y2 - minY),
+          pointFrom<LocalPoint>(0, 0),
+          pointFrom<LocalPoint>(
+            geometry.x2 - geometry.x1,
+            geometry.y2 - geometry.y1,
+          ),
         ],
         ...base,
       });

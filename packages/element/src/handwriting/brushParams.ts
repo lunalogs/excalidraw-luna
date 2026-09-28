@@ -77,6 +77,14 @@ export const normalizeBrushConfig = (
     return null;
   }
   const raw = input as Record<string, unknown>;
+  // Missing versions are tolerated for incomplete v1 snapshots. Never
+  // reinterpret a future version with v1 semantics or rewrite its payload.
+  if (
+    raw.schemaVersion != null &&
+    raw.schemaVersion !== HANDWRITING_SCHEMA_VERSION
+  ) {
+    return null;
+  }
 
   const brushKind = isHandwritingBrushKind(raw.brushKind)
     ? raw.brushKind
@@ -210,14 +218,14 @@ export const pressureResponse = (
  * option (BR-02/BR-08). Streamline interpolates by arc length
  * (`runningLength`), not by event count, so the result is decoupled from
  * pointer event frequency and converges to the real path end when the stroke
- * is finalized with `last: true`.
+ * is finalized with `last: true`. Stabilization 0 maps to exactly 0 — no
+ * filtering whatsoever (R2/F6).
  */
 export const stabilizationToStreamline = (stabilization: number): number => {
   const s = Number.isFinite(stabilization)
     ? Math.min(100, Math.max(0, stabilization))
     : BRUSH_PARAM_RANGES.stabilization.default;
-  // 0 → 0.05 (near-raw path), 100 → 0.75 (heavily stabilized).
-  return 0.05 + 0.7 * (s / 100);
+  return 0.7 * (s / 100);
 };
 
 /**

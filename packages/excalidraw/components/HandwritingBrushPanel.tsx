@@ -8,7 +8,7 @@ import type { HandwritingBrushKind } from "@excalidraw/element/handwriting/types
 
 import {
   BRUSH_PRESETS_FILE_EXTENSION,
-  createPresetLibrary,
+  createPanelPresetLibrary,
   exportPresetsToJSON,
   importPresetsFromJSON,
   MAX_PERSONAL_PRESETS,
@@ -109,6 +109,7 @@ const BUILTIN_COLOR: Record<HandwritingBrushKind, string> = {
 type TestStroke = {
   points: [number, number][];
   pressures: number[];
+  simulatePressure: boolean;
 };
 
 const sampleStroke = (pressure: number): TestStroke => {
@@ -120,8 +121,22 @@ const sampleStroke = (pressure: number): TestStroke => {
     points.push([8 + t * 216, 36 + Math.sin(t * Math.PI * 2.5) * 14]);
     pressures.push(Math.min(1, Math.max(0, pressure + Math.sin(t * 6) * 0.06)));
   }
-  return { points, pressures };
+  return { points, pressures, simulatePressure: false };
 };
+
+/**
+ * Same pressure capability policy as the main canvas (App): pens always
+ * report real pressure (including 0 and stationary changes), non-pen
+ * pointers with 0 / 0.5 pressure fall back to simulation.
+ */
+const testStrokeSample = (
+  event: React.PointerEvent,
+): { pressure: number; simulatePressure: boolean } => ({
+  pressure: event.pressure ?? 0.5,
+  simulatePressure:
+    event.pointerType !== "pen" &&
+    (event.pressure === 0 || event.pressure === 0.5),
+});
 
 const drawStroke = (
   ctx: CanvasRenderingContext2D,
@@ -165,9 +180,13 @@ const TEST_AREA_HEIGHT = 72;
 
 const TestWriteArea = ({ settings }: { settings: CurrentBrushSettings }) => {
   const { t } = useI18n();
+  const appState = useExcalidrawAppState();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [strokes, setStrokes] = useState<TestStroke[]>([]);
   const drawingRef = useRef<TestStroke | null>(null);
+  // R4/A04: only ONE active pointer may write; palm / other pointers are
+  // ignored instead of hijacking the stroke in progress
+  const activePointerIdRef = useRef<number | null>(null);
 
   const redraw = useCallback(
     (extra: TestStroke | null) => {
@@ -183,20 +202,10 @@ const TestWriteArea = ({ settings }: { settings: CurrentBrushSettings }) => {
       drawStroke(ctx, sampleStroke(0.25), settings, false);
       drawStroke(ctx, sampleStroke(0.9), settings, false, 0);
       for (const stroke of strokes) {
-        drawStroke(
-          ctx,
-          stroke,
-          settings,
-          stroke.pressures.every((p) => p === 0.5),
-        );
+        drawStroke(ctx, stroke, settings, stroke.simulatePressure);
       }
       if (extra) {
-        drawStroke(
-          ctx,
-          extra,
-          settings,
-          extra.pressures.every((p) => p === 0.5),
-        );
+        drawStroke(ctx, extra, settings, extra.simulatePressure);
       }
     },
     [settings, strokes],
@@ -223,7 +232,12 @@ const TestWriteArea = ({ settings }: { settings: CurrentBrushSettings }) => {
         <button
           type="button"
           className="handwriting-test-area__clear"
-          onClick={() => setStrokes([])}
+          onClick={() => {
+            // clearing also terminates an in-progress test stroke
+            drawingRef.current = null;
+            activePointerIdRef.current = null;
+            setStrokes([]);
+          }}
         >
           {t("handwriting.testWriteClear")}
         </button>
@@ -237,10 +251,25 @@ const TestWriteArea = ({ settings }: { settings: CurrentBrushSettings }) => {
         onPointerDown={(event) => {
           event.stopPropagation();
           event.preventDefault();
+          const activeId = activePointerIdRef.current;
+          if (activeId !== null && activeId !== event.pointerId) {
+            // R4/F5: in Pencil-only mode a real pen takes priority over an
+            // already-active touch (palm); otherwise first-come-first-served
+            const penTakesOver =
+              appState.penMode && event.pointerType === "pen";
+            if (!penTakesOver) {
+              return;
+            }
+            // drop the interrupted touch stroke
+            drawingRef.current = null;
+          }
           const [x, y] = localPoint(event);
+          const sample = testStrokeSample(event);
+          activePointerIdRef.current = event.pointerId;
           drawingRef.current = {
             points: [[x, y]],
-            pressures: [event.pressure > 0 ? event.pressure : 0.5],
+            pressures: [sample.pressure],
+            simulatePressure: sample.simulatePressure,
           };
           canvasRef.current?.setPointerCapture?.(event.pointerId);
           redraw(drawingRef.current);
@@ -248,22 +277,56 @@ const TestWriteArea = ({ settings }: { settings: CurrentBrushSettings }) => {
         onPointerMove={(event) => {
           event.stopPropagation();
           const stroke = drawingRef.current;
-          if (!stroke) {
+          if (!stroke || activePointerIdRef.current !== event.pointerId) {
             return;
           }
           const [x, y] = localPoint(event);
           const last = stroke.points[stroke.points.length - 1];
-          if (Math.hypot(x - last[0], y - last[1]) < 1.5) {
+          const lastPressure = stroke.pressures[stroke.pressures.length - 1];
+          const sample = testStrokeSample(event);
+          // F5/A08: only drop the sample when BOTH position and pressure are
+          // unchanged — a stationary pressure change is real input (BR-07)
+          if (
+            Math.hypot(x - last[0], y - last[1]) < 1.5 &&
+            Math.abs(sample.pressure - lastPressure) < 1e-6
+          ) {
             return;
           }
           stroke.points.push([x, y]);
-          stroke.pressures.push(event.pressure > 0 ? event.pressure : 0.5);
+          stroke.pressures.push(sample.pressure);
           redraw(stroke);
         }}
         onPointerUp={(event) => {
           event.stopPropagation();
+          if (activePointerIdRef.current !== event.pointerId) {
+            return;
+          }
           const stroke = drawingRef.current;
           drawingRef.current = null;
+          activePointerIdRef.current = null;
+          if (stroke && stroke.points.length > 0) {
+            setStrokes((prev) => [...prev, stroke]);
+          }
+        }}
+        onPointerCancel={(event) => {
+          event.stopPropagation();
+          if (activePointerIdRef.current !== event.pointerId) {
+            return;
+          }
+          // drop the interrupted stroke (same spirit as palm rejection)
+          drawingRef.current = null;
+          activePointerIdRef.current = null;
+          redraw(null);
+        }}
+        onLostPointerCapture={(event) => {
+          if (activePointerIdRef.current !== event.pointerId) {
+            return;
+          }
+          // capture lost without an up/cancel: keep the committed ink but
+          // end the session so a stale pointer cannot keep writing
+          const stroke = drawingRef.current;
+          drawingRef.current = null;
+          activePointerIdRef.current = null;
           if (stroke && stroke.points.length > 0) {
             setStrokes((prev) => [...prev, stroke]);
           }
@@ -319,7 +382,11 @@ export const HandwritingBrushPanel = () => {
   const setState = useExcalidrawSetAppState();
   const { t } = useI18n();
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [persistWarning, setPersistWarning] = useState(false);
+  // R5/A11: distinguish "no durable storage" / "recovered corrupt data" /
+  // "persist failed (quota)" — never a silent fake success
+  const [persistWarning, setPersistWarning] = useState<
+    "session" | "corrupt" | "quota" | null
+  >(null);
   const [presetMessage, setPresetMessage] = useState("");
   // pending preset switch while the current settings are modified (PRE-03)
   const [pendingSwitch, setPendingSwitch] = useState<BrushPreset | null>(null);
@@ -330,16 +397,43 @@ export const HandwritingBrushPanel = () => {
     name: string;
   } | null>(null);
 
-  // One library instance per panel mount: reads the latest persisted state
-  // on open and keeps in-memory state stable while the panel is visible.
-  const [library] = useState(() => createPresetLibrary());
+  // One library instance per panel mount so it reads the latest persisted
+  // state on open — EXCEPT when no durable storage exists: then all mounts
+  // share one in-session library so presets survive the panel closing (R5).
+  const [library] = useState(() => createPanelPresetLibrary());
+
+  // bumped when a mount-time recovery merge changes the underlying data, so
+  // the dropdown re-renders even when no warning state changed
+  const [, setDataTick] = useState(0);
 
   useEffect(() => {
-    if (library.getPersistError()) {
-      // Surface once per mount (PRE-04: no fake success).
-      setPersistWarning(true);
+    // H2 recovery: if a previous mirror failed (outage), retry persisting
+    // the full unified view whenever the panel opens again
+    if (library.retryPersist()) {
+      setDataTick((tick) => tick + 1);
+    }
+    if (!library.isStorageAvailable()) {
+      setPersistWarning("session");
+    } else if (library.getPersistError()) {
+      // surfaced first: a persistence refusal (e.g. preserved corrupt
+      // source) is more actionable than the recovery summary
+      setPersistWarning("quota");
+    } else if (library.hadCorruptData()) {
+      setPersistWarning("corrupt");
     }
   }, [library]);
+
+  // H1+H2/R5: the unified library keeps ALL presets accessible in memory
+  // regardless of storage health — persist errors only affect durability,
+  // never accessibility, so they surface as a warning (with the retry on
+  // next mount) instead of any data movement.
+  const surfacePersistState = () => {
+    if (!library.isStorageAvailable()) {
+      setPersistWarning("session");
+    } else if (library.getPersistError()) {
+      setPersistWarning("quota");
+    }
+  };
 
   const settings = getCurrentBrushSettings(state);
 
@@ -350,9 +444,13 @@ export const HandwritingBrushPanel = () => {
   const activePreset = state.currentItemBrushPreset
     ? presets.find((preset) => preset.id === state.currentItemBrushPreset)
     : undefined;
+  const initialSettings = useRef(settings);
   const isModified = activePreset
     ? !brushSettingsMatchPreset(settings, activePreset)
-    : false;
+    : Object.entries(settings).some(
+        ([key, value]) =>
+          value !== initialSettings.current[key as keyof CurrentBrushSettings],
+      );
 
   const applySettings = (next: Partial<CurrentBrushSettings>) => {
     const merged = { ...settings, ...next };
@@ -369,28 +467,11 @@ export const HandwritingBrushPanel = () => {
     });
   };
 
-  const selectBrushKind = (brushKind: HandwritingBrushKind) => {
-    const config = getDefaultBrushConfig(brushKind);
-    app.setActiveTool({ type: "freedraw" });
-    setState({
-      currentItemBrush: brushKind,
-      currentItemBrushPreset: `builtin-${brushKind}`,
-      currentItemStrokeWidth: BUILTIN_WIDTH[brushKind],
-      currentItemStrokeColor: BUILTIN_COLOR[brushKind],
-      currentItemOpacity: BUILTIN_OPACITY[brushKind],
-      currentItemPressureAmount: config.pressureAmount,
-      currentItemPressureSensitivity: config.pressureSensitivity,
-      currentItemNibFlatness: config.nibFlatness,
-      currentItemNibAngle: config.nibAngle,
-      currentItemStabilization: config.stabilization,
-      currentItemShapeRecognition: brushKind !== "highlighter",
-    });
-  };
-
   const applyPreset = (preset: BrushPreset) => {
     setState({
       currentItemBrushPreset: preset.id,
       currentItemBrush: preset.brushKind,
+      currentItemShapeRecognition: preset.brushKind !== "highlighter",
       currentItemStrokeWidth: preset.strokeWidth,
       currentItemStrokeColor: preset.strokeColor,
       currentItemOpacity: preset.opacity,
@@ -400,6 +481,21 @@ export const HandwritingBrushPanel = () => {
       currentItemNibAngle: preset.config.nibAngle,
       currentItemStabilization: preset.config.stabilization,
     });
+  };
+
+  const requestPresetSwitch = (preset: BrushPreset) => {
+    if (isModified) {
+      setPendingSwitch(preset);
+    } else {
+      applyPreset(preset);
+    }
+  };
+
+  const selectBrushKind = (brushKind: HandwritingBrushKind) => {
+    const preset = library.get(`builtin-${brushKind}`);
+    if (preset) {
+      requestPresetSwitch(preset);
+    }
   };
 
   // -------------------------------------------------------------------------
@@ -459,6 +555,7 @@ export const HandwritingBrushPanel = () => {
       }
       setState({ currentItemBrushPreset: result.preset.id });
       setPresetMessage("");
+      surfacePersistState();
       // a save triggered from a pending switch completes the switch (PRE-03)
       if (pendingSwitch) {
         const target = pendingSwitch;
@@ -474,6 +571,7 @@ export const HandwritingBrushPanel = () => {
         return;
       }
       setPresetMessage("");
+      surfacePersistState();
     }
     setNaming(null);
   };
@@ -491,6 +589,7 @@ export const HandwritingBrushPanel = () => {
       return;
     }
     setPresetMessage("");
+    surfacePersistState();
     if (pendingSwitch) {
       const target = pendingSwitch;
       setPendingSwitch(null);
@@ -576,6 +675,7 @@ export const HandwritingBrushPanel = () => {
           added++;
         }
       }
+      surfacePersistState();
       setPresetMessage(t("handwriting.presetsImported", { count: added }));
     } catch (error) {
       setPresetMessage(t("handwriting.presetsImportFailed"));
@@ -677,11 +777,7 @@ export const HandwritingBrushPanel = () => {
               return;
             }
             // PRE-03: ask before losing unsaved modifications
-            if (isModified) {
-              setPendingSwitch(preset);
-            } else {
-              applyPreset(preset);
-            }
+            requestPresetSwitch(preset);
           }}
         >
           {(!activePreset || isModified) && (
@@ -970,7 +1066,13 @@ export const HandwritingBrushPanel = () => {
 
       {persistWarning && (
         <p role="status" className="handwriting-brush-panel__warning">
-          {t("handwriting.presetsNotPersisted")}
+          {persistWarning === "session" && t("handwriting.presetsSessionOnly")}
+          {persistWarning === "corrupt" &&
+            t("handwriting.presetsRecovered", {
+              kept: library.list().length,
+              dropped: library.getDroppedPresetCount(),
+            })}
+          {persistWarning === "quota" && t("handwriting.presetsNotPersisted")}
         </p>
       )}
     </div>

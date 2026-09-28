@@ -1,9 +1,4 @@
 import { simplify } from "points-on-curve";
-import { getStroke } from "perfect-freehand";
-
-import { normalizeBrushConfig } from "./handwriting/brushParams";
-import { computeHandwritingOutline } from "./handwriting/outline";
-import { isHandwritingBrushKind } from "./handwriting/types";
 
 import {
   type GeometricShape,
@@ -45,6 +40,8 @@ import type {
   ElementShapes,
   SVGPathString,
 } from "@excalidraw/excalidraw/scene/types";
+
+import { getFreedrawOutlinePointsForElement } from "./handwriting/outline";
 
 import { elementWithCanvasCache } from "./renderElement";
 
@@ -1182,30 +1179,8 @@ const getFreeDrawSvgPath = (element: ExcalidrawFreeDrawElement) => {
   ) as SVGPathString;
 };
 
-export const getFreedrawOutlinePoints = (
-  element: ExcalidrawFreeDrawElement,
-) => {
-  // Phase-two strokes carry a versioned `customData.handwriting` object and
-  // render through the new brush engine. Phase-one files only have the
-  // legacy `handwritingBrush` string (or no customData at all) and must keep
-  // the exact legacy appearance (BR-09) — `normalizeBrushConfig` returns null
-  // for anything that is not a valid phase-two object.
-  const config = normalizeBrushConfig(element.customData?.handwriting);
-  const legacyBrushKind = isHandwritingBrushKind(
-    element.customData?.handwritingBrush,
-  )
-    ? element.customData.handwritingBrush
-    : null;
-
-  return computeHandwritingOutline({
-    points: element.points,
-    pressures: element.pressures,
-    size: element.strokeWidth * 4.25,
-    simulatePressure: element.simulatePressure,
-    config,
-    legacyBrushKind,
-  });
-};
+export const getFreedrawOutlinePoints = (element: ExcalidrawFreeDrawElement) =>
+  getFreedrawOutlinePointsForElement(element);
 
 const med = (A: number[], B: number[]) => {
   return [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];

@@ -1,0 +1,90 @@
+import {
+  createPanelPresetLibrary,
+  createPresetLibrary,
+  getSessionPresetLibrary,
+  __resetUnifiedPresetLibraryForTests,
+  BRUSH_PRESETS_STORAGE_KEY as key,
+} from "../handwriting/brushPresets";
+beforeEach(() => {
+  vi.restoreAllMocks();
+  localStorage.clear();
+  __resetUnifiedPresetLibraryForTests();
+});
+afterEach(() => vi.restoreAllMocks());
+const input = (name: string) => ({
+  ...getSessionPresetLibrary().getBuiltinPresets()[0],
+  name,
+});
+
+it.each(["write-failure", "full-slots"])(
+  "unified mount mirror preserves sole corrupt source with %s",
+  (mode) => {
+    const raw = "{ sole corrupt source";
+    localStorage.setItem(key, raw);
+    if (mode === "full-slots") {
+      for (let i = 1; i <= 5; i++) {
+        localStorage.setItem(
+          `${key}.corrupt-backup${i === 1 ? "" : `.${i}`}`,
+          `old ${i}`,
+        );
+      }
+    } else {
+      const original = Storage.prototype.setItem;
+      vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+        this: Storage,
+        k: string,
+        v: string,
+      ) {
+        if (k.includes(".corrupt-backup")) {
+          throw new Error("backup blocked");
+        }
+        original.call(this, k, v);
+      });
+    }
+    const library = createPanelPresetLibrary();
+    library.retryPersist(); // actual panel mount effect
+    expect(localStorage.getItem(key)).toBe(raw);
+  },
+);
+
+it("does not overwrite unread storage with an empty authority", () => {
+  createPresetLibrary().add(input("Existing saved pen"));
+  const original = localStorage.getItem(key);
+  const get = Storage.prototype.getItem;
+  const spy = vi
+    .spyOn(Storage.prototype, "getItem")
+    .mockImplementation(function (this: Storage, k: string) {
+      if (k === key) {
+        throw new Error("read temporarily blocked");
+      }
+      return get.call(this, k);
+    });
+  const library = createPanelPresetLibrary();
+  spy.mockRestore();
+  library.retryPersist();
+  expect(localStorage.getItem(key)).toBe(original);
+});
+
+it("reacquires recovered storage without resetting session authority", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage")!;
+  let library: ReturnType<typeof createPanelPresetLibrary>;
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    get() {
+      throw new Error("blocked");
+    },
+  });
+  try {
+    library = createPanelPresetLibrary();
+    library.add(input("Offline pen"));
+  } finally {
+    Object.defineProperty(window, "localStorage", descriptor);
+  }
+  expect(createPanelPresetLibrary()).toBe(library!);
+  expect(library!.retryPersist()).toBe(true);
+  expect(
+    JSON.parse(localStorage.getItem(key)!).presets.some(
+      (p: { name: string }) => p.name === "Offline pen",
+    ),
+  ).toBe(true);
+});

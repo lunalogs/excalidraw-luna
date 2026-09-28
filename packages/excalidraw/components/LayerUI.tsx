@@ -328,7 +328,7 @@ const LayerUI = ({
                     </Island>
                   </Section>
                 )}
-              <HandwritingRestoreButton />
+              <HandwritingRestoreButton appId={app.id} />
             </div>
           </Stack.Col>
           {!appState.viewModeEnabled &&

@@ -1,0 +1,7 @@
+import {getRepresentativeStrokeWidth} from '../packages/element/src/handwriting/outline';
+import {getDefaultBrushConfig} from '../packages/element/src/handwriting/brushParams';
+for (const radius of [30,60,100]) {
+ const points = Array.from({length:121},(_,i)=>[radius*Math.cos(i/120*2*Math.PI),radius*Math.sin(i/120*2*Math.PI)] as [number,number]);
+ const width=getRepresentativeStrokeWidth({strokeWidth:2,points,pressures:points.map(()=>.5),simulatePressure:false,customData:{handwriting:{...getDefaultBrushConfig('standard'),pressureAmount:60,nibFlatness:0}}});
+ console.log({radius,nominalInkWidth:8.5,representative:width});
+}

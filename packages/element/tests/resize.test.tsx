@@ -21,6 +21,7 @@ import type { LocalPoint } from "@excalidraw/math";
 import { isLinearElement } from "../src/typeChecks";
 import { resizeSingleElement } from "../src/resizeElements";
 import { LinearElementEditor } from "../src/linearElementEditor";
+import { getCommonBounds } from "../src/bounds";
 import { getElementPointsCoords } from "../src/bounds";
 
 import type {
@@ -925,25 +926,32 @@ describe("multiple selection", () => {
     });
 
     const selectionWidth = 100;
-    const selectionHeight = 177.1390098521619;
     const move = [-25, -25] as [number, number];
-    const scale = Math.max(
-      1 + move[0] / selectionWidth,
-      1 + move[1] / selectionHeight,
-    );
+    // R1: selection bounds now include the freedraw's visible ink, so derive
+    // the anchor from the actual common bounds instead of the old
+    // centerline-derived constants
+    const [boundsMinX, boundsMinY, boundsMaxX, boundsMaxY] = getCommonBounds([
+      line,
+      freedraw,
+    ]);
+    const width = boundsMaxX - boundsMinX;
+    const height = boundsMaxY - boundsMinY;
+    const scale = Math.max(1 + move[0] / width, 1 + move[1] / height);
 
     UI.resize([line, freedraw], "se", move, {
       shift: true,
     });
 
-    expect(line.x).toBeCloseTo(60 * scale);
-    expect(line.y).toBeCloseTo(40 * scale);
-    expect(line.width).toBeCloseTo(100 * scale);
+    expect(line.x).toBeCloseTo(boundsMinX + (60 - boundsMinX) * scale);
+    expect(line.y).toBeCloseTo(boundsMinY + (40 - boundsMinY) * scale);
+    expect(line.width).toBeCloseTo(selectionWidth * scale);
     expect(line.height).toBeCloseTo(80 * scale);
     expect(line.angle).toEqual(0);
 
-    expect(freedraw.x).toBeCloseTo(63.56072661326618 * scale);
-    expect(freedraw.y).toBeCloseTo(100 * scale);
+    expect(freedraw.x).toBeCloseTo(
+      boundsMinX + (63.56072661326618 - boundsMinX) * scale,
+    );
+    expect(freedraw.y).toBeCloseTo(boundsMinY + (100 - boundsMinY) * scale);
     expect(freedraw.width).toBeCloseTo(62.6173395442529 * scale);
     expect(freedraw.height).toBeCloseTo(77.1390098521619 * scale);
     expect(freedraw.angle).toEqual(0);

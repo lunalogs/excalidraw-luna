@@ -7,7 +7,12 @@ import { t } from "../i18n";
 import { calculateScrollCenter } from "../scene";
 import { SCROLLBAR_WIDTH, SCROLLBAR_MARGIN } from "../scene/scrollbars";
 
-import { ExitViewModeButton, MobileShapeActions } from "./Actions";
+import {
+  CombinedHandwritingProperties,
+  ExitViewModeButton,
+  MobileShapeActions,
+} from "./Actions";
+import { useExcalidrawContainer } from "./App";
 import { MobileToolBar } from "./MobileToolBar";
 import { FixedSideContainer } from "./FixedSideContainer";
 
@@ -62,6 +67,7 @@ export const MobileMenu = ({
   app,
   onPenModeToggle,
 }: MobileMenuProps) => {
+  const { container } = useExcalidrawContainer();
   const {
     WelcomeScreenCenterTunnel,
     MainMenuTunnel,
@@ -97,6 +103,13 @@ export const MobileMenu = ({
       <div className="excalidraw-ui-top-left">
         {renderTopLeftUI?.(true, appState)}
         <MainMenuTunnel.Out />
+        {!appState.viewModeEnabled && (
+          <CombinedHandwritingProperties
+            appState={appState}
+            setAppState={setAppState}
+            container={container}
+          />
+        )}
       </div>
     );
 

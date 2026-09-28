@@ -1,0 +1,32 @@
+{
+  "environment": {
+    "node": "v22.19.0",
+    "os": "darwin",
+    "release": "25.6.0",
+    "cpu": "Apple M4"
+  },
+  "sampleDensity": {
+    "description": "Same 400px two-wave sine path, amplitude 50px, constant pressure; symmetric vertex-to-segment outline distance",
+    "samples": [61, 241],
+    "maxDistancePx": 4.566225317195425
+  },
+  "thousandStrokeOutlineBatch": {
+    "iterations": 20,
+    "p50Ms": 13.525999999999954,
+    "p95Ms": 15.757208999999989,
+    "heapDeltaBytes": 6306928
+  },
+  "fiveThousandPointOutline": {
+    "iterations": 100,
+    "p50Ms": 0.4584579999999505,
+    "p95Ms": 0.8260420000000295,
+    "heapDeltaBytes": -4597072
+  },
+  "fiveThousandPointRecognition": {
+    "iterations": 100,
+    "p50Ms": 0.3012499999999818,
+    "p95Ms": 0.5820830000000115,
+    "heapDeltaBytes": -6598280
+  },
+  "limitation": "Node pure geometry only; heap delta is GC-dependent, not retained-memory usage. No scene rendering, pointer latency, export or iPad performance claim."
+}

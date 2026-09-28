@@ -1,8 +1,14 @@
 import {
   curvePointDistance,
   distanceToLineSegment,
+  lineSegment,
+  pointFrom,
   pointRotateRads,
 } from "@excalidraw/math";
+import {
+  polygonFromPoints,
+  polygonIncludesPoint,
+} from "@excalidraw/math/polygon";
 
 import { ellipse, ellipseDistanceFromPoint } from "@excalidraw/math/ellipse";
 
@@ -13,6 +19,8 @@ import {
   deconstructLinearOrFreeDrawElement,
   deconstructRectanguloidElement,
 } from "./utils";
+
+import { getFreedrawOutlinePointsForElement } from "./handwriting/outline";
 
 import { elementCenterPoint } from "./bounds";
 
@@ -47,8 +55,39 @@ export const distanceToElement = (
       return distanceToEllipseElement(element, elementsMap, p);
     case "line":
     case "arrow":
-    case "freedraw":
       return distanceToLinearOrFreeDraElement(element, elementsMap, p);
+    case "freedraw": {
+      // F2/A07: hit-test against the REAL stroke outline (pressure, flat
+      // nib, stabilization included), not a nominal round-nib estimate — a
+      // heavy press can nearly double the ink radius beyond size/2.
+      const outline = getFreedrawOutlinePointsForElement(element);
+      if (!outline.length) {
+        return Infinity;
+      }
+      const center = elementCenterPoint(element, elementsMap);
+      const polygon = polygonFromPoints(
+        outline.map(([lx, ly]) =>
+          pointRotateRads(
+            pointFrom<GlobalPoint>(element.x + lx, element.y + ly),
+            center,
+            element.angle,
+          ),
+        ),
+      );
+      if (polygonIncludesPoint(p, polygon)) {
+        return 0;
+      }
+      let minDistance = Infinity;
+      for (let i = 0; i < polygon.length; i++) {
+        const a = polygon[i];
+        const b = polygon[(i + 1) % polygon.length];
+        minDistance = Math.min(
+          minDistance,
+          distanceToLineSegment(p, lineSegment(a, b)),
+        );
+      }
+      return minDistance;
+    }
   }
 };
 

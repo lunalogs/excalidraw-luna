@@ -8,7 +8,7 @@ import { serializeAsJSON } from "../data/json";
 
 import { API } from "./helpers/api";
 import { Pointer, UI } from "./helpers/ui";
-import { act, fireEvent, render, screen } from "./test-utils";
+import { act, fireEvent, GlobalTestState, render, screen } from "./test-utils";
 
 const h = window.h;
 const pen = new Pointer("pen", 10);
@@ -204,4 +204,29 @@ it("erases a stroke with Pencil while finger navigation does not erase", () => {
   pen.moveTo(140, 100);
   pen.upAt();
   expect(h.elements[0].isDeleted).toBe(true);
+});
+
+it("retains real pen pressure starting at 0.5, including stationary changes", () => {
+  UI.clickTool("freedraw");
+  const canvas = GlobalTestState.interactiveCanvas;
+  const event = {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 100,
+    clientY: 100,
+    button: 0,
+    buttons: 1,
+  };
+  fireEvent.pointerDown(canvas, { ...event, pressure: 0.5 });
+  fireEvent.pointerMove(canvas, { ...event, clientX: 150, pressure: 0.3 });
+  fireEvent.pointerMove(canvas, { ...event, clientX: 150, pressure: 0.9 });
+  const stroke = h.state.newElement;
+  expect(stroke?.type).toBe("freedraw");
+  if (stroke?.type !== "freedraw") {
+    throw new Error("Expected stroke");
+  }
+  expect(stroke.simulatePressure).toBe(false);
+  expect(stroke.pressures).toEqual([0.5, 0.3, 0.9]);
+  expect(stroke.points).toHaveLength(stroke.pressures.length);
+  fireEvent.pointerUp(canvas, { ...event, clientX: 150, pressure: 0 });
 });

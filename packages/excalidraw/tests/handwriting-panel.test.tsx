@@ -66,6 +66,111 @@ it("exposes the advanced parameters, hold-to-shape settings and test-write area"
   expect(h.elements).toHaveLength(0);
 });
 
+it("isolates the test-write stroke from other pointers and handles cancel (R4/A04)", () => {
+  UI.clickTool("freedraw");
+  const testArea = screen.getByLabelText("Test write");
+  // pen starts writing
+  fireEvent.pointerDown(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 10,
+    clientY: 10,
+    pressure: 0.6,
+  });
+  fireEvent.pointerMove(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 30,
+    clientY: 12,
+    pressure: 0.6,
+  });
+  // a palm (touch) tries to hijack mid-stroke — must be ignored, not end the pen
+  fireEvent.pointerDown(testArea, {
+    pointerType: "touch",
+    pointerId: 20,
+    clientX: 100,
+    clientY: 40,
+    pressure: 0.5,
+  });
+  fireEvent.pointerMove(testArea, {
+    pointerType: "touch",
+    pointerId: 20,
+    clientX: 120,
+    clientY: 40,
+    pressure: 0.5,
+  });
+  fireEvent.pointerUp(testArea, {
+    pointerType: "touch",
+    pointerId: 20,
+    clientX: 120,
+    clientY: 40,
+    pressure: 0,
+  });
+  // pen continues and lifts: still one clean session, document untouched
+  fireEvent.pointerMove(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 60,
+    clientY: 14,
+    pressure: 0.6,
+  });
+  fireEvent.pointerUp(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 60,
+    clientY: 14,
+    pressure: 0.6,
+  });
+  expect(h.elements).toHaveLength(0);
+  expect(h.state.newElement).toBeNull();
+
+  // a cancelled pen stroke is dropped without touching the document
+  fireEvent.pointerDown(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 10,
+    clientY: 30,
+    pressure: 0.7,
+  });
+  fireEvent.pointerMove(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 40,
+    clientY: 30,
+    pressure: 0.7,
+  });
+  fireEvent.pointerCancel(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 40,
+    clientY: 30,
+    pressure: 0,
+  });
+  // pen at zero pressure still works afterwards (pressure policy, BR-06)
+  fireEvent.pointerDown(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 10,
+    clientY: 50,
+    pressure: 0,
+  });
+  fireEvent.pointerMove(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 50,
+    clientY: 50,
+    pressure: 0,
+  });
+  fireEvent.pointerUp(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 50,
+    clientY: 50,
+    pressure: 0,
+  });
+  expect(h.elements).toHaveLength(0);
+});
+
 it("applies parameter changes to the next stroke only and locks the snapshot mid-stroke", () => {
   UI.clickTool("freedraw");
   fireEvent.change(screen.getByRole("slider", { name: "Width" }), {
@@ -113,41 +218,47 @@ it("stores a full versioned brush snapshot on every new stroke", () => {
   });
 });
 
-it("shows the brush panel in the compact properties popover on tablet form factor", () => {
-  // jsdom lacks ResizeObserver (used by radix popover)
-  (globalThis as any).ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-  // emulate an iPad-sized editor container so the styles panel goes compact
-  const container = document.querySelector(
-    ".excalidraw-container",
-  ) as HTMLElement;
-  container.getBoundingClientRect = () =>
-    ({
-      width: 768,
-      height: 1024,
-      top: 0,
-      left: 0,
-      right: 768,
-      bottom: 1024,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
-  act(() => {
-    h.app.refreshEditorInterface();
-    h.setState({});
-  });
-  UI.clickTool("freedraw");
-  const trigger = screen.getByRole("button", { name: "Brush" });
-  fireEvent.click(trigger);
-  expect(screen.getByRole("slider", { name: "Width" })).toBeInTheDocument();
-  expect(
-    screen.getByRole("button", { name: "Highlighter" }),
-  ).toBeInTheDocument();
-});
+it.each([768, 500])(
+  "shows the brush panel at %ipx, including narrow split view",
+  (width) => {
+    // jsdom lacks ResizeObserver (used by radix popover)
+    (globalThis as any).ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    // emulate an iPad-sized editor container so the styles panel goes compact
+    const container = document.querySelector(
+      ".excalidraw-container",
+    ) as HTMLElement;
+    container.getBoundingClientRect = () =>
+      ({
+        width,
+        height: 1024,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: 1024,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+    act(() => {
+      h.app.refreshEditorInterface();
+      h.setState({});
+    });
+    UI.clickTool("freedraw");
+    const trigger = screen.getByRole("button", { name: "Brush" });
+    if (width === 500) {
+      expect(trigger.closest(".excalidraw-ui-top-left")).not.toBeNull();
+    }
+    fireEvent.click(trigger);
+    expect(screen.getByRole("slider", { name: "Width" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Highlighter" }),
+    ).toBeInTheDocument();
+  },
+);
 
 it("defaults hold-to-shape on for pen and off for highlighter", () => {
   UI.clickTool("freedraw");
@@ -158,4 +269,85 @@ it("defaults hold-to-shape on for pen and off for highlighter", () => {
   expect(
     screen.getByRole("checkbox", { name: /Hold-to-shape/i }),
   ).not.toBeChecked();
+});
+
+it("keeps stationary pressure changes in the test-write stroke (F5/A08)", () => {
+  UI.clickTool("freedraw");
+  const testArea = screen.getByLabelText("Test write");
+  fireEvent.pointerDown(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 20,
+    clientY: 20,
+    pressure: 0.2,
+  });
+  // same position, pressure jumps 0.2 → 0.9: must be recorded, not dropped
+  fireEvent.pointerMove(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 20,
+    clientY: 20,
+    pressure: 0.9,
+  });
+  fireEvent.pointerUp(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 20,
+    clientY: 20,
+    pressure: 0.9,
+  });
+  expect(h.elements).toHaveLength(0);
+});
+
+it("lets the pen take over from a palm in Pencil-only mode (F5)", () => {
+  UI.clickTool("freedraw");
+  act(() => h.setState({ penMode: true }));
+  const testArea = screen.getByLabelText("Test write");
+  // palm lands first
+  fireEvent.pointerDown(testArea, {
+    pointerType: "touch",
+    pointerId: 21,
+    clientX: 100,
+    clientY: 40,
+    pressure: 0.5,
+  });
+  fireEvent.pointerMove(testArea, {
+    pointerType: "touch",
+    pointerId: 21,
+    clientX: 110,
+    clientY: 40,
+    pressure: 0.5,
+  });
+  // pen arrives and must take over instead of being blocked
+  fireEvent.pointerDown(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 20,
+    clientY: 20,
+    pressure: 0.6,
+  });
+  fireEvent.pointerMove(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 60,
+    clientY: 20,
+    pressure: 0.6,
+  });
+  fireEvent.pointerUp(testArea, {
+    pointerType: "pen",
+    pointerId: 10,
+    clientX: 60,
+    clientY: 20,
+    pressure: 0.6,
+  });
+  // stray touch events afterwards are ignored; document untouched
+  fireEvent.pointerMove(testArea, {
+    pointerType: "touch",
+    pointerId: 21,
+    clientX: 120,
+    clientY: 40,
+    pressure: 0.5,
+  });
+  expect(h.elements).toHaveLength(0);
+  expect(h.state.newElement).toBeNull();
 });

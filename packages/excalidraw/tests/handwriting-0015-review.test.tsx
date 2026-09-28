@@ -1,0 +1,92 @@
+import {
+  createPanelPresetLibrary,
+  createPresetLibrary,
+  getSessionPresetLibrary,
+  __resetUnifiedPresetLibraryForTests,
+  BRUSH_PRESETS_STORAGE_KEY as key,
+} from "../handwriting/brushPresets";
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  localStorage.clear();
+  const session = getSessionPresetLibrary();
+  for (const preset of session.list()) {
+    session.remove(preset.id);
+  }
+  // the unified authority is a module-level singleton — rebuild it per test
+  __resetUnifiedPresetLibraryForTests();
+});
+afterEach(() => vi.restoreAllMocks());
+const input = (name: string) => ({
+  ...getSessionPresetLibrary().getBuiltinPresets()[0],
+  name,
+});
+
+it("keeps a session preset through repeated recovery attempts when real writes still fail", () => {
+  getSessionPresetLibrary().add(input("Survivor"));
+  const original = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+    this: Storage,
+    k: string,
+    v: string,
+  ) {
+    if (k === key) {
+      throw new DOMException("full", "QuotaExceededError");
+    }
+    original.call(this, k, v);
+  });
+  expect(
+    createPanelPresetLibrary()
+      .list()
+      .some((p) => p.name === "Survivor"),
+  ).toBe(true);
+  expect(
+    createPanelPresetLibrary()
+      .list()
+      .some((p) => p.name === "Survivor"),
+  ).toBe(true);
+});
+
+it("keeps readable persisted presets available when writes are blocked", () => {
+  createPresetLibrary().add(input("Saved before outage"));
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("readonly");
+  });
+  expect(
+    createPanelPresetLibrary()
+      .list()
+      .some((p) => p.name === "Saved before outage"),
+  ).toBe(true);
+});
+
+it("keeps overflow recovery items accessible for export when stored library is full", () => {
+  const disk = createPresetLibrary();
+  for (let i = 0; i < 12; i++) {
+    disk.add(input(`Stored ${i}`));
+  }
+  getSessionPresetLibrary().add(input("Session overflow"));
+  expect(
+    createPanelPresetLibrary()
+      .list()
+      .some((p) => p.name === "Session overflow"),
+  ).toBe(true);
+});
+
+it("preserves the current corrupt payload when an older backup already exists", () => {
+  const raw = JSON.stringify({
+    type: "excalidraw-brush-presets",
+    schemaVersion: 1,
+    presets: [{ name: "Current recoverable data" }],
+  });
+  localStorage.setItem(`${key}.corrupt-backup`, "Previous unrelated backup");
+  localStorage.setItem(key, raw);
+  const library = createPresetLibrary();
+  library.add(input("New preset"));
+  // Preserve either the source or a recoverable separate stored copy.
+  const values = Array.from({ length: localStorage.length }, (_, i) =>
+    localStorage.getItem(localStorage.key(i)!),
+  );
+  expect(values.some((v) => v?.includes("Current recoverable data"))).toBe(
+    true,
+  );
+});

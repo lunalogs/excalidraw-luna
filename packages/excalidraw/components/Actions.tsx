@@ -423,7 +423,7 @@ const CombinedShapeProperties = ({
   );
 };
 
-const CombinedHandwritingProperties = ({
+export const CombinedHandwritingProperties = ({
   appState,
   setAppState,
   container,

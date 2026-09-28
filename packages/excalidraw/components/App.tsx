@@ -265,6 +265,7 @@ import { HANDWRITING_SCHEMA_VERSION } from "@excalidraw/element/handwriting/type
 import { encodeBrushConfig } from "@excalidraw/element/handwriting/brushParams";
 
 import { recognizeShape } from "@excalidraw/element/handwriting/shapeRecognition";
+import { getRepresentativeStrokeWidth } from "@excalidraw/element/handwriting/outline";
 
 import type { GlobalPoint, LocalPoint, Radians } from "@excalidraw/math";
 
@@ -2433,7 +2434,8 @@ class App extends React.Component<AppProps, AppState> {
                             onClick={this.handleCanvasClick}
                             onPointerMove={this.handleCanvasPointerMove}
                             onPointerUp={this.handleCanvasPointerUp}
-                            onPointerCancel={this.removePointer}
+                            onPointerCancel={this.cancelHandwritingPointer}
+                            onLostPointerCapture={this.cancelHandwritingPointer}
                             onTouchMove={this.handleTouchMove}
                             onPointerDown={this.handleCanvasPointerDown}
                             onDoubleClick={this.handleCanvasDoubleClick}
@@ -2895,6 +2897,12 @@ class App extends React.Component<AppProps, AppState> {
     });
   });
 
+  private onHandwritingVisibilityChange = () => {
+    if (document.hidden) {
+      this.cancelHandwritingHold();
+    }
+  };
+
   private onUnload = () => {
     this.onBlur();
   };
@@ -3251,6 +3259,13 @@ class App extends React.Component<AppProps, AppState> {
       clearTimeout(this.handwritingCommitTimeout);
       this.handwritingCommitTimeout = null;
     }
+    // R6: never leave a restore prompt pointing at an unmounted editor
+    const commits = editorJotaiStore.get(handwritingRestoreAtom);
+    if (commits[this.id]) {
+      const next = { ...commits };
+      delete next[this.id];
+      editorJotaiStore.set(handwritingRestoreAtom, next);
+    }
     this.scene = new Scene();
     this.fonts = new Fonts(this.scene);
     this.renderer = new Renderer(this.scene);
@@ -3399,6 +3414,12 @@ class App extends React.Component<AppProps, AppState> {
       addEventListener(window, EVENT.RESIZE, this.onResize, false),
       addEventListener(window, EVENT.UNLOAD, this.onUnload, false),
       addEventListener(window, EVENT.BLUR, this.onBlur, false),
+      addEventListener(
+        document,
+        "visibilitychange",
+        this.onHandwritingVisibilityChange,
+        false,
+      ),
       addEventListener(
         this.excalidrawContainerRef.current,
         EVENT.WHEEL,
@@ -4293,6 +4314,15 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private activePenPointerId: number | null = null;
+
+  private cancelHandwritingPointer = (
+    event: React.PointerEvent<HTMLElement> | PointerEvent,
+  ) => {
+    if (this.handwritingHoldState?.pointerId === event.pointerId) {
+      this.cancelHandwritingHold();
+    }
+    this.removePointer(event);
+  };
 
   removePointer = (event: React.PointerEvent<HTMLElement> | PointerEvent) => {
     if (touchTimeout) {
@@ -8961,7 +8991,14 @@ class App extends React.Component<AppProps, AppState> {
     if (hold.timer) {
       clearTimeout(hold.timer);
     }
-    hold.timer = setTimeout(this.fireHandwritingRecognition, delayMs);
+    // Capture both the interaction and this timer generation. A queued callback
+    // from an earlier dwell must not recognize a new stroke or a moved endpoint.
+    const timer = setTimeout(() => {
+      if (this.handwritingHoldState === hold && hold.timer === timer) {
+        this.fireHandwritingRecognition();
+      }
+    }, delayMs);
+    hold.timer = timer;
   };
 
   private dwellDelayMs = () =>
@@ -9036,7 +9073,10 @@ class App extends React.Component<AppProps, AppState> {
       !element ||
       element.id !== hold.strokeId ||
       element.type !== "freedraw" ||
-      element.isDeleted
+      element.isDeleted ||
+      document.hidden ||
+      !this.state.currentItemShapeRecognition ||
+      this.state.activeTool.type !== "freedraw"
     ) {
       return;
     }
@@ -9051,7 +9091,8 @@ class App extends React.Component<AppProps, AppState> {
       this.handwritingShapePreview.setCandidate({
         candidate,
         strokeColor: element.strokeColor,
-        strokeWidth: element.strokeWidth,
+        // R3/A16: preview uses the same representative width the commit will
+        strokeWidth: getRepresentativeStrokeWidth(element),
       });
       // NOTE: no setState here — an appState change would split the undo
       // history around the commit. The preview label ("Line · lift to
@@ -9061,11 +9102,14 @@ class App extends React.Component<AppProps, AppState> {
 
   /** Swap the tidied shape back to the original hand-drawn stroke (SH-06). */
   public restoreHandDrawn = () => {
-    const commit = editorJotaiStore.get(handwritingRestoreAtom);
+    const commits = editorJotaiStore.get(handwritingRestoreAtom);
+    const commit = commits[this.id];
     if (!commit) {
       return;
     }
-    editorJotaiStore.set(handwritingRestoreAtom, null);
+    const next = { ...commits };
+    delete next[this.id];
+    editorJotaiStore.set(handwritingRestoreAtom, next);
     const shape = this.scene
       .getElementsIncludingDeleted()
       .find((element) => element.id === commit.shapeId);
@@ -9086,16 +9130,23 @@ class App extends React.Component<AppProps, AppState> {
     if (this.handwritingCommitTimeout) {
       clearTimeout(this.handwritingCommitTimeout);
     }
+    const commits = editorJotaiStore.get(handwritingRestoreAtom);
     editorJotaiStore.set(handwritingRestoreAtom, {
-      shapeId,
-      strokeId,
-      at: Date.now(),
+      ...commits,
+      [this.id]: {
+        shapeId,
+        strokeId,
+        appId: this.id,
+        at: Date.now(),
+      },
     });
     this.handwritingCommitTimeout = setTimeout(() => {
       this.handwritingCommitTimeout = null;
       const current = editorJotaiStore.get(handwritingRestoreAtom);
-      if (current?.shapeId === shapeId) {
-        editorJotaiStore.set(handwritingRestoreAtom, null);
+      if (current[this.id]?.shapeId === shapeId) {
+        const next = { ...current };
+        delete next[this.id];
+        editorJotaiStore.set(handwritingRestoreAtom, next);
       }
     }, HANDWRITING_RESTORE_WINDOW_MS);
   };
@@ -9117,7 +9168,11 @@ class App extends React.Component<AppProps, AppState> {
       y: gridY,
     });
 
-    const simulatePressure = event.pressure === 0.5;
+    // A real pen may report exactly 0.5. Only non-pen devices with the
+    // standard no-pressure values use velocity-based simulation.
+    const simulatePressure =
+      event.pointerType !== "pen" &&
+      (event.pressure === 0 || event.pressure === 0.5);
 
     const element = newFreeDrawElement({
       type: elementType,
@@ -10503,7 +10558,12 @@ class App extends React.Component<AppProps, AppState> {
 
           const lastPoint = points.length > 0 && points[points.length - 1];
           const discardPoint =
-            lastPoint && lastPoint[0] === dx && lastPoint[1] === dy;
+            lastPoint &&
+            lastPoint[0] === dx &&
+            lastPoint[1] === dy &&
+            (newElement.simulatePressure ||
+              newElement.pressures[newElement.pressures.length - 1] ===
+                event.pressure);
 
           if (!discardPoint) {
             const pressures = newElement.simulatePressure

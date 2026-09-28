@@ -1,0 +1,92 @@
+import { getDefaultBrushConfig } from "@excalidraw/element/handwriting/brushParams";
+import { getRepresentativeStrokeWidth } from "@excalidraw/element/handwriting/outline";
+
+import { Excalidraw } from "../index";
+
+import { API } from "./helpers/api";
+import { UI } from "./helpers/ui";
+import { fireEvent, render, screen } from "./test-utils";
+
+beforeEach(async () => {
+  localStorage.clear();
+  await render(<Excalidraw />);
+  API.setAppState({ width: 1024, height: 768 });
+});
+afterEach(() => vi.restoreAllMocks());
+
+it("0013: quota-failed preset survives closing and reopening the panel", () => {
+  const originalSet = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+    this: Storage,
+    key: string,
+    value: string,
+  ) {
+    if (key.endsWith(".probe")) {
+      return originalSet.call(this, key, value);
+    }
+    throw new DOMException("full", "QuotaExceededError");
+  });
+  UI.clickTool("freedraw");
+  fireEvent.click(screen.getByRole("button", { name: "Save as new preset" }));
+  fireEvent.change(screen.getByLabelText("Preset name"), {
+    target: { value: "Quota session pen" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(
+    screen.getByRole("option", { name: "Quota session pen" }),
+  ).toBeInTheDocument();
+  UI.clickTool("rectangle");
+  UI.clickTool("freedraw");
+  expect(
+    screen.queryByRole("option", { name: "Quota session pen" }),
+  ).not.toBeNull();
+});
+
+it.each([30, 60, 100])(
+  "0013: circle radius %s does not become ink thickness",
+  (radius) => {
+    const points = Array.from(
+      { length: 121 },
+      (_, i) =>
+        [
+          radius * Math.cos((i / 120) * 2 * Math.PI),
+          radius * Math.sin((i / 120) * 2 * Math.PI),
+        ] as [number, number],
+    );
+    const width = getRepresentativeStrokeWidth({
+      strokeWidth: 2,
+      points,
+      pressures: points.map(() => 0.5),
+      simulatePressure: false,
+      customData: {
+        handwriting: {
+          ...getDefaultBrushConfig("standard"),
+          pressureAmount: 60,
+          nibFlatness: 0,
+        },
+      },
+    });
+    // Broad independent bound: a nominal 8.5px pen cannot become >20px
+    // simply because the user draws a larger circle at constant pressure.
+    expect(width).toBeLessThan(20);
+  },
+);
+
+it("0013: partially corrupt preset payload is backed up before save", async () => {
+  const { createPresetLibrary, BRUSH_PRESETS_STORAGE_KEY: key } = await import(
+    "../handwriting/brushPresets"
+  );
+  const raw = JSON.stringify({
+    type: "excalidraw-brush-presets",
+    schemaVersion: 1,
+    presets: [{ name: "recoverable user data", config: {} }],
+  });
+  localStorage.setItem(key, raw);
+  const library = createPresetLibrary();
+  expect(library.hadCorruptData()).toBe(true);
+  expect(
+    library.add({ ...library.getBuiltinPresets()[0], name: "New preset" }).ok,
+  ).toBe(true);
+  expect(localStorage.getItem(key)).not.toBe(raw);
+  expect(localStorage.getItem(`${key}.corrupt-backup`)).toBe(raw);
+});

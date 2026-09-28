@@ -1,0 +1,73 @@
+import {
+  createPanelPresetLibrary,
+  createPresetLibrary,
+  getSessionPresetLibrary,
+  __resetUnifiedPresetLibraryForTests,
+  BRUSH_PRESETS_STORAGE_KEY as key,
+} from "../handwriting/brushPresets";
+beforeEach(() => {
+  vi.restoreAllMocks();
+  localStorage.clear();
+  __resetUnifiedPresetLibraryForTests();
+});
+afterEach(() => vi.restoreAllMocks());
+const input = (name: string, strokeWidth: number) => ({
+  ...getSessionPresetLibrary().getBuiltinPresets()[0],
+  name,
+  strokeWidth,
+});
+
+it("preserves two distinct IDs with the same name after a read outage", () => {
+  const added = createPresetLibrary().add(input("My pen", 2));
+  if (!added.ok) {
+    throw new Error("seed failed");
+  }
+  const diskId = added.preset.id;
+  const get = Storage.prototype.getItem;
+  const spy = vi
+    .spyOn(Storage.prototype, "getItem")
+    .mockImplementation(function (this: Storage, k: string) {
+      if (k === key) {
+        throw new Error("read blocked");
+      }
+      return get.call(this, k);
+    });
+  const library = createPanelPresetLibrary();
+  const session = library.add(input("My pen", 8));
+  if (!session.ok) {
+    throw new Error("session add failed");
+  }
+  expect(session.preset.id).not.toBe(diskId);
+  spy.mockRestore();
+  expect(library.retryPersist()).toBe(true);
+  expect(library.retryPersist()).toBe(true);
+  const stored = JSON.parse(localStorage.getItem(key)!);
+  expect(stored.presets.map((p: { id: string }) => p.id).sort()).toEqual(
+    [diskId, session.preset.id].sort(),
+  );
+  expect(library.list()).toHaveLength(2);
+});
+
+it("retries backup before mirroring once backup storage recovers", () => {
+  const raw = "{ original to preserve";
+  localStorage.setItem(key, raw);
+  const set = Storage.prototype.setItem;
+  const spy = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation(function (this: Storage, k: string, v: string) {
+      if (k.includes(".corrupt-backup")) {
+        throw new Error("blocked");
+      }
+      return set.call(this, k, v);
+    });
+  const library = createPanelPresetLibrary();
+  library.add(input("Recovered pen", 3));
+  expect(library.retryPersist()).toBe(false);
+  expect(localStorage.getItem(key)).toBe(raw);
+  spy.mockRestore();
+  expect(library.retryPersist()).toBe(true);
+  expect(localStorage.getItem(`${key}.corrupt-backup`)).toBe(raw);
+  expect(JSON.parse(localStorage.getItem(key)!).presets[0].name).toBe(
+    "Recovered pen",
+  );
+});

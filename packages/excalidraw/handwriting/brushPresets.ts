@@ -42,6 +42,45 @@ export const PRESET_NAME_MAX_LENGTH = 40;
 export const MAX_PERSONAL_PRESETS = 12;
 export const MAX_IMPORT_PRESETS = 200;
 export const MAX_IMPORT_JSON_CHARS = 2_000_000;
+/** H3: cap on retained corrupt-payload backups so repeated opens stay bounded */
+export const MAX_CORRUPT_BACKUPS = 5;
+
+/**
+ * H3/J1: write `raw` to the next free versioned backup slot without ever
+ * overwriting different content. Shared by the raw library loader and the
+ * unified library's mirror retry.
+ */
+const writeCorruptBackup = (
+  storage: Storage,
+  storageKey: string,
+  raw: string,
+): boolean => {
+  try {
+    const first = `${storageKey}.corrupt-backup`;
+    const existing = storage.getItem(first);
+    if (existing === raw) {
+      return true;
+    }
+    if (existing === null) {
+      storage.setItem(first, raw);
+      return true;
+    }
+    for (let i = 2; i <= MAX_CORRUPT_BACKUPS; i++) {
+      const k = `${storageKey}.corrupt-backup.${i}`;
+      const v = storage.getItem(k);
+      if (v === raw) {
+        return true;
+      }
+      if (v === null) {
+        storage.setItem(k, raw);
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
 
 export const STROKE_WIDTH_RANGE = { min: 0.25, max: 12 } as const;
 export const OPACITY_RANGE = { min: 1, max: 100 } as const;
@@ -91,6 +130,12 @@ export interface PresetLibraryOptions {
   storageKey?: string;
   now?: () => number;
   idGenerator?: () => string;
+  /**
+   * Whether `storage` is a durable backend. In-session fallback libraries
+   * pass an in-memory Storage with `storageAvailable: false` so the UI can
+   * distinguish "session only" from real persistence (R5/A11).
+   */
+  storageAvailable?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,15 +323,15 @@ const createMemoryStorage = (): Storage => {
   } as Storage;
 };
 
-const resolveDefaultStorage = (): Storage => {
+const resolveDefaultStorage = (): { storage: Storage; available: boolean } => {
   try {
     if (typeof globalThis.localStorage !== "undefined") {
-      return globalThis.localStorage;
+      return { storage: globalThis.localStorage, available: true };
     }
   } catch {
     // Accessing localStorage can throw (e.g. blocked cookies) — fall through.
   }
-  return createMemoryStorage();
+  return { storage: createMemoryStorage(), available: false };
 };
 
 let fallbackIdCounter = 0;
@@ -342,9 +387,24 @@ export class BrushPresetLibrary {
   private corruptData = false;
   private droppedPresetCount = 0;
   private persistError: string | null = null;
+  /** R5/A11: false when no durable storage backend exists at all. */
+  private readonly storageAvailable: boolean;
+  /** H3: corrupted source could not be backed up — never overwrite its key */
+  private preserveCorruptSource = false;
+  /** J1: the raw corrupted payload being preserved, for later backup retries */
+  private preservedRaw: string | null = null;
+  /** J2: true when even the initial READ failed (source state unknown) */
+  private readError = false;
 
   constructor(options: PresetLibraryOptions = {}) {
-    this.storage = options.storage ?? resolveDefaultStorage();
+    if (options.storage) {
+      this.storage = options.storage;
+      this.storageAvailable = options.storageAvailable ?? true;
+    } else {
+      const resolved = resolveDefaultStorage();
+      this.storage = resolved.storage;
+      this.storageAvailable = resolved.available;
+    }
     this.storageKey = options.storageKey ?? BRUSH_PRESETS_STORAGE_KEY;
     this.now = options.now ?? (() => Date.now());
     this.idGenerator = options.idGenerator ?? defaultIdGenerator;
@@ -527,6 +587,64 @@ export class BrushPresetLibrary {
   }
 
   /**
+   * R5/A11: whether a durable storage backend exists. When false, every
+   * mount would start from an empty in-memory library, silently losing the
+   * user's presets — callers should share `getSessionPresetLibrary()`
+   * instead and surface a "session only" warning.
+   */
+  isStorageAvailable(): boolean {
+    return this.storageAvailable;
+  }
+
+  /** H3: true when the corrupted original is being kept in place. */
+  isPreservingCorruptSource(): boolean {
+    return this.preserveCorruptSource;
+  }
+
+  /** J1: the raw corrupted payload, so a later retry can still back it up. */
+  getPreservedCorruptRaw(): string | null {
+    return this.preservedRaw;
+  }
+
+  /** J2: true when the initial read itself failed (unknown source state). */
+  hadReadError(): boolean {
+    return this.readError;
+  }
+
+  /**
+   * H2/R5: add a preset recovered from storage into this (in-memory)
+   * library, BYPASSING the personal-preset cap. Capacity must never make
+   * existing user data inaccessible; the cap still applies to presets the
+   * user creates from scratch via add().
+   */
+  addRecovered(
+    input: BrushPresetInput,
+    opts: { id?: string; updatedAt?: number } = {},
+  ): BrushPresetMutationResult {
+    const { errors, value } = validatePresetShape(input, {
+      requireId: false,
+      requireUpdatedAt: false,
+    });
+    if (errors.length > 0 || !value) {
+      return { ok: false, errors };
+    }
+    const preset: BrushPreset = {
+      // J2: keep the storage id so reload/retry merging is idempotent and
+      // round-tripped content stays byte-identical
+      id: opts.id ?? this.idGenerator(),
+      name: (value.name as string).trim(),
+      brushKind: value.brushKind as BrushPreset["brushKind"],
+      strokeWidth: value.strokeWidth as number,
+      strokeColor: value.strokeColor as string,
+      opacity: value.opacity as number,
+      config: encodeBrushConfig(value.config as HandwritingBrushConfig),
+      updatedAt: opts.updatedAt ?? this.now(),
+    };
+    this.personalPresets.push(preset);
+    return { ok: true, preset: clonePreset(preset) };
+  }
+
+  /**
    * True when stored data had to be recovered: malformed JSON, unknown
    * schemaVersion, or invalid entries that were dropped.
    */
@@ -567,6 +685,8 @@ export class BrushPresetLibrary {
     try {
       raw = this.storage.getItem(this.storageKey);
     } catch {
+      // J2: a failed read means the source state is UNKNOWN — not "empty"
+      this.readError = true;
       this.corruptData = true;
       return;
     }
@@ -578,10 +698,12 @@ export class BrushPresetLibrary {
       parsed = JSON.parse(raw);
     } catch {
       this.corruptData = true;
+      this.preserveIfBackupFailed(raw);
       return;
     }
     if (typeof parsed !== "object" || parsed === null) {
       this.corruptData = true;
+      this.preserveIfBackupFailed(raw);
       return;
     }
     const file = parsed as Partial<PersistedPresetFile>;
@@ -591,6 +713,7 @@ export class BrushPresetLibrary {
       !Array.isArray(file.presets)
     ) {
       this.corruptData = true;
+      this.preserveIfBackupFailed(raw);
       return;
     }
     const valid: BrushPreset[] = [];
@@ -604,8 +727,37 @@ export class BrushPresetLibrary {
     }
     if (this.droppedPresetCount > 0) {
       this.corruptData = true;
+      // G3+H3: any recovery path that drops/modifies original records must
+      // preserve the raw payload first — the next save would otherwise
+      // silently overwrite the only copy of the bad entries
+      this.preserveIfBackupFailed(raw);
     }
     this.personalPresets = valid;
+  }
+
+  /** H3: keep the corrupted original in place when it cannot be backed up. */
+  private preserveIfBackupFailed(raw: string): void {
+    if (!this.backupCorruptRaw(raw)) {
+      this.preserveCorruptSource = true;
+      this.preservedRaw = raw;
+      this.persistError =
+        "corrupted presets could not be backed up; original data preserved in place";
+    }
+  }
+
+  /**
+   * F3+G3+H3/R5: preserve the raw corrupted payload under versioned sibling
+   * keys so the user can recover it instead of the next save silently
+   * overwriting the only copy. An older backup is NEVER overwritten by
+   * different content — the current payload goes to the next free index
+   * (capped, so repeated opens cannot create unbounded backups). When no
+   * backup slot can be written, the only copy is preserved by refusing to
+   * overwrite the main key (see persist()).
+   *
+   * Returns whether the current payload is safely stored somewhere.
+   */
+  private backupCorruptRaw(raw: string): boolean {
+    return writeCorruptBackup(this.storage, this.storageKey, raw);
   }
 
   private persist(): void {
@@ -614,6 +766,13 @@ export class BrushPresetLibrary {
       schemaVersion: BRUSH_PRESETS_SCHEMA_VERSION,
       presets: this.personalPresets,
     };
+    if (this.preserveCorruptSource) {
+      // H3: the corrupted original could not be backed up, so overwriting
+      // the main key would destroy the only copy. Refuse, and surface why.
+      this.persistError =
+        "corrupted original could not be backed up; refusing to overwrite it — export your presets now";
+      return;
+    }
     try {
       this.storage.setItem(this.storageKey, JSON.stringify(file));
       this.persistError = null;
@@ -639,6 +798,338 @@ export const getDefaultPresetLibrary = (): BrushPresetLibrary => {
     defaultLibrary = createPresetLibrary();
   }
   return defaultLibrary;
+};
+
+let sessionLibrary: BrushPresetLibrary | null = null;
+
+/** R5/A11: true when a durable localStorage backend is reachable. */
+export const isDefaultStorageAvailable = (): boolean =>
+  resolveDefaultStorage().available;
+
+/**
+ * F3/A11: probe that the durable backend actually accepts writes (quota or
+ * getItem/setItem failures count as unusable even when the object exists).
+ */
+export const isPresetStorageWritable = (): boolean => {
+  const { storage, available } = resolveDefaultStorage();
+  if (!available) {
+    return false;
+  }
+  const probeKey = `${BRUSH_PRESETS_STORAGE_KEY}.probe`;
+  try {
+    storage.setItem(probeKey, "1");
+    storage.removeItem(probeKey);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * H1+H2/R5: unified preset authority behind the panel. The shared session
+ * library is the ALWAYS-ACCESSIBLE in-memory view; durable storage is a
+ * best-effort mirror of it. This replaces the probe-then-branch design:
+ *
+ * - Accessibility never depends on writability: stored presets are seeded
+ *   into the authority whenever they can be READ (even when writes fail),
+ *   so users can select and export them during an outage.
+ * - Nothing is deleted on an unconfirmed mirror: there is no separate
+ *   "session copy" to remove — the authority holds everything, and
+ *   `getPersistError()` only reflects durability, never accessibility.
+ * - Capacity cannot hide data: presets recovered from storage bypass the
+ *   12-cap (they are existing user data, not new creations).
+ * - Corrupted sources are backed up (versioned) before anything can
+ *   overwrite them; if a backup cannot be written, the original key is
+ *   preserved in place and further writes are refused.
+ * - Recovery: mirror retries happen on mount (retryPersist); once storage
+ *   accepts a write, the full current view is persisted — no silent
+ *   replace of user data with stale disk content.
+ */
+/**
+ * K1: pick a name for a recovered preset that does not collide
+ * (case-insensitively) with existing names, appending " (2)", " (3)", … and
+ * truncating the base so the result stays within the preset name limit.
+ */
+const uniqueRecoveredName = (
+  name: string,
+  existingNames: readonly string[],
+): string => {
+  const taken = (candidate: string) =>
+    existingNames.some(
+      (existing) => existing.toLowerCase() === candidate.toLowerCase(),
+    );
+  if (!taken(name)) {
+    return name;
+  }
+  for (let i = 2; ; i++) {
+    const suffix = ` (${i})`;
+    const baseLength = Math.max(1, PRESET_NAME_MAX_LENGTH - suffix.length);
+    const candidate = name.slice(0, baseLength) + suffix;
+    if (!taken(candidate) && candidate.length <= PRESET_NAME_MAX_LENGTH) {
+      return candidate;
+    }
+  }
+};
+
+export class UnifiedPresetLibrary {
+  /**
+   * J2: source state — "unknown" after a failed read or a freshly
+   * re-connected backend; never overwrite the storage key while unknown.
+   */
+  private loadState: "unknown" | "loaded" | "corrupt" = "unknown";
+  private storage: Storage | null;
+  private persistError: string | null = null;
+  private corrupt = false;
+  private dropped = 0;
+  /** J1: corrupted original not yet safely backed up — writes refused */
+  private preserveSource = false;
+  private preservedRaw: string | null = null;
+
+  constructor() {
+    const resolved = resolveDefaultStorage();
+    this.storage = resolved.available ? resolved.storage : null;
+    if (!this.storage) {
+      this.persistError = "no durable storage";
+      return;
+    }
+    this.loadFromStorage();
+  }
+
+  /**
+   * J2+K1: read + merge the storage source into the authority. Returns
+   * false when the source state stays unknown (read failure). Merge rules:
+   * same id → authority wins (idempotent retries); different id with a
+   * conflicting name → BOTH are kept, the recovered copy renamed with a
+   * suffix; everything keeps its original id/updatedAt/parameters.
+   */
+  private loadFromStorage(): boolean {
+    if (!this.storage) {
+      return false;
+    }
+    const stored = createPresetLibrary({ storage: this.storage });
+    if (stored.hadReadError()) {
+      this.loadState = "unknown";
+      this.persistError =
+        stored.getPersistError() ?? "storage could not be read yet";
+      return false;
+    }
+    this.corrupt = stored.hadCorruptData();
+    this.dropped = stored.getDroppedPresetCount();
+    this.preserveSource = stored.isPreservingCorruptSource();
+    this.preservedRaw = stored.getPreservedCorruptRaw();
+    if (this.preserveSource) {
+      this.persistError = stored.getPersistError();
+    }
+    for (const preset of stored.list()) {
+      // Identity dedupe: the same id is already known (e.g. merged earlier
+      // or edited in-session) — the authority's version wins, keeping
+      // retries idempotent.
+      if (this.getSessionAuthority().get(preset.id)) {
+        continue;
+      }
+      // K1 name conflict: a DIFFERENT id with the same name is a DIFFERENT
+      // preset — both sides must survive. The authority keeps the name; the
+      // recovered (storage) copy gets a suffix within the name length limit.
+      // Merely skipping it would let the next mirror permanently overwrite
+      // the disk preset.
+      const existingNames = this.getSessionAuthority()
+        .list()
+        .map((p) => p.name);
+      const name = uniqueRecoveredName(preset.name, existingNames);
+      this.getSessionAuthority().addRecovered(
+        { ...preset, name },
+        { id: preset.id, updatedAt: preset.updatedAt },
+      );
+    }
+    this.loadState = this.corrupt ? "corrupt" : "loaded";
+    return true;
+  }
+
+  /**
+   * J1+J2+J3: single guarded write path used by every mutation AND the
+   * mount retry. Refuses to overwrite when the source state is unknown or
+   * the corrupted original is not safely backed up yet; in the latter case
+   * it FIRST retries the backup (storage may have become writable) and only
+   * proceeds once the original is safe.
+   */
+  private mirror(): boolean {
+    if (!this.storage) {
+      return false;
+    }
+    if (this.loadState === "unknown") {
+      this.persistError =
+        "storage source not readable yet; refusing to overwrite it";
+      return false;
+    }
+    if (this.preserveSource) {
+      if (
+        this.preservedRaw &&
+        writeCorruptBackup(
+          this.storage,
+          BRUSH_PRESETS_STORAGE_KEY,
+          this.preservedRaw,
+        )
+      ) {
+        // the original is safe now — overwriting is allowed
+        this.preserveSource = false;
+        this.preservedRaw = null;
+      } else {
+        this.persistError =
+          "corrupted original could not be backed up; refusing to overwrite it — export your presets now";
+        return false;
+      }
+    }
+    try {
+      this.storage.setItem(
+        BRUSH_PRESETS_STORAGE_KEY,
+        exportPresetsToJSON(this.getSessionAuthority().list()),
+      );
+      this.persistError = null;
+      return true;
+    } catch (error) {
+      // durability failed — accessibility is unaffected (authority in memory)
+      this.persistError =
+        error instanceof Error ? error.message : String(error);
+      return false;
+    }
+  }
+
+  private getSessionAuthority(): BrushPresetLibrary {
+    return getSessionPresetLibrary();
+  }
+
+  /**
+   * Mount/retry entry. J3: re-resolve the backend if it was unreachable at
+   * construction (same-page recovery — never requires a reload). J2: after
+   * connecting (or reconnecting), READ and MERGE before writing anything.
+   */
+  retryPersist(): boolean {
+    if (!this.storage) {
+      const resolved = resolveDefaultStorage();
+      if (!resolved.available) {
+        return false;
+      }
+      this.storage = resolved.storage;
+      this.loadState = "unknown";
+    }
+    if (this.loadState === "unknown") {
+      if (!this.loadFromStorage()) {
+        return false;
+      }
+    }
+    return this.mirror();
+  }
+
+  private commit(result: BrushPresetMutationResult): BrushPresetMutationResult {
+    if (result.ok) {
+      this.mirror();
+    }
+    return result;
+  }
+
+  list(): BrushPreset[] {
+    return this.getSessionAuthority().list();
+  }
+
+  get(id: string): BrushPreset | undefined {
+    return this.getSessionAuthority().get(id);
+  }
+
+  getBuiltinPresets(): readonly BrushPreset[] {
+    return this.getSessionAuthority().getBuiltinPresets();
+  }
+
+  add(
+    input: BrushPresetInput,
+    opts: { onNameConflict?: PresetNameConflictPolicy } = {},
+  ): BrushPresetMutationResult {
+    return this.commit(this.getSessionAuthority().add(input, opts));
+  }
+
+  update(
+    id: string,
+    patch: Partial<BrushPresetInput>,
+    opts: { onNameConflict?: PresetNameConflictPolicy } = {},
+  ): BrushPresetMutationResult {
+    return this.commit(this.getSessionAuthority().update(id, patch, opts));
+  }
+
+  rename(
+    id: string,
+    newName: string,
+    opts: { onNameConflict?: PresetNameConflictPolicy } = {},
+  ): BrushPresetMutationResult {
+    return this.commit(this.getSessionAuthority().rename(id, newName, opts));
+  }
+
+  duplicate(id: string): BrushPresetMutationResult {
+    return this.commit(this.getSessionAuthority().duplicate(id));
+  }
+
+  remove(id: string): boolean {
+    const removed = this.getSessionAuthority().remove(id);
+    if (removed) {
+      this.mirror();
+    }
+    return removed;
+  }
+
+  isStorageAvailable(): boolean {
+    return this.storage !== null;
+  }
+
+  getPersistError(): string | null {
+    return this.persistError;
+  }
+
+  hadCorruptData(): boolean {
+    return this.corrupt;
+  }
+
+  getDroppedPresetCount(): number {
+    return this.dropped;
+  }
+}
+
+let unifiedLibrary: UnifiedPresetLibrary | null = null;
+
+/**
+ * Panel entry point. Returns the shared unified authority (same instance
+ * across mounts, so data can never be lost by closing the panel).
+ */
+export const createPanelPresetLibrary = (): UnifiedPresetLibrary => {
+  if (!unifiedLibrary) {
+    unifiedLibrary = new UnifiedPresetLibrary();
+  }
+  return unifiedLibrary;
+};
+
+/**
+ * Test-only reset: drop the unified authority AND its in-memory view so each
+ * test starts with an empty library under the current storage conditions.
+ * Not for production use.
+ */
+export const __resetUnifiedPresetLibraryForTests = (): void => {
+  unifiedLibrary = null;
+  const session = getSessionPresetLibrary();
+  for (const preset of session.list()) {
+    session.remove(preset.id);
+  }
+};
+
+/**
+ * R5/A11: shared in-session library for environments without durable
+ * storage. All panel mounts in the same session must use this instance so
+ * presets survive the panel closing and reopening.
+ */
+export const getSessionPresetLibrary = (): BrushPresetLibrary => {
+  if (!sessionLibrary) {
+    sessionLibrary = createPresetLibrary({
+      storage: createMemoryStorage(),
+      storageAvailable: false,
+    });
+  }
+  return sessionLibrary;
 };
 
 // ---------------------------------------------------------------------------
