@@ -404,22 +404,27 @@ export const actionZoomToPreset = register({
   label: "buttons.zoomQuick",
   viewMode: true,
   trackEvent: { category: "canvas" },
-  PanelComponent: ({ updateData }) => (
+  PanelComponent: ({ updateData, appState }) => (
     <>
-      {[1, 2, 3].map((level) => (
-        <ToolButton
-          key={level}
-          type="button"
-          className={`zoom-preset-button zoom-button${
-            level === 1 ? " zoom-preset-first" : ""
-          }`}
-          title={t("buttons.zoomQuick", { level: level * 100 })}
-          aria-label={t("buttons.zoomQuick", { level: level * 100 })}
-          onClick={() => updateData(level)}
-        >
-          {level * 100}%
-        </ToolButton>
-      ))}
+      {[1, 2, 3].map((level) => {
+        // highlight the button that matches the current zoom level
+        const active = Math.round(appState.zoom.value * 100) === level * 100;
+        return (
+          <ToolButton
+            key={level}
+            type="button"
+            className={`zoom-preset-button zoom-button${
+              level === 1 ? " zoom-preset-first" : ""
+            }${active ? " zoom-preset-active" : ""}`}
+            title={t("buttons.zoomQuick", { level: level * 100 })}
+            aria-label={t("buttons.zoomQuick", { level: level * 100 })}
+            selected={active}
+            onClick={() => updateData(level)}
+          >
+            {level * 100}%
+          </ToolButton>
+        );
+      })}
     </>
   ),
   perform: (_elements, appState, data) => {

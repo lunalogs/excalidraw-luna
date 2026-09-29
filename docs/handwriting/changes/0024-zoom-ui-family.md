@@ -19,6 +19,10 @@
 | packages/excalidraw/components/Actions.scss | `.zoom-actions--presets` 端圆角、字宽、锁定高亮 |
 | packages/excalidraw/actions/actionCanvas.tsx | 首个快捷按钮加 `zoom-preset-first` 类 |
 
+## 补充（0024 同批反馈）
+
+用户追加：当前缩放级别对应的快捷按钮需高亮暗示选中。实现：快捷按钮按 `Math.round(zoom*100)` 匹配级别，`selected` + `zoom-preset-active`（主题色高亮）标记当前项；测试断言高亮类随缩放切换。
+
 ## 实际验证
 
 | 命令 | 结果 |

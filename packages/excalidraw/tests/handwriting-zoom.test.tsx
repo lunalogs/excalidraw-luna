@@ -13,12 +13,30 @@ beforeEach(async () => {
 });
 
 it("quick zoom buttons set the zoom to 100 / 200 / 300 percent", () => {
+  // the button matching the current level is highlighted
+  expect(
+    screen.getByRole("button", { name: "Zoom to 100%" }),
+  ).toHaveClass("zoom-preset-active");
+  expect(
+    screen.getByRole("button", { name: "Zoom to 200%" }),
+  ).not.toHaveClass("zoom-preset-active");
+
   fireEvent.click(screen.getByRole("button", { name: "Zoom to 200%" }));
   expect(h.state.zoom.value).toBe(2);
+  expect(
+    screen.getByRole("button", { name: "Zoom to 200%" }),
+  ).toHaveClass("zoom-preset-active");
+  expect(
+    screen.getByRole("button", { name: "Zoom to 100%" }),
+  ).not.toHaveClass("zoom-preset-active");
+
   fireEvent.click(screen.getByRole("button", { name: "Zoom to 100%" }));
   expect(h.state.zoom.value).toBe(1);
   fireEvent.click(screen.getByRole("button", { name: "Zoom to 300%" }));
   expect(h.state.zoom.value).toBe(3);
+  expect(
+    screen.getByRole("button", { name: "Zoom to 300%" }),
+  ).toHaveClass("zoom-preset-active");
 });
 
 it("zoom lock blocks buttons, shortcuts and wheel zoom", () => {
