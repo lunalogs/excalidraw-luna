@@ -123,6 +123,7 @@ exports[`history > multiplayer undo/redo > conflicts in arrows and their bindabl
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -766,6 +767,7 @@ exports[`history > multiplayer undo/redo > conflicts in arrows and their bindabl
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -1336,6 +1338,7 @@ exports[`history > multiplayer undo/redo > conflicts in arrows and their bindabl
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -1706,6 +1709,7 @@ exports[`history > multiplayer undo/redo > conflicts in arrows and their bindabl
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -2078,6 +2082,7 @@ exports[`history > multiplayer undo/redo > conflicts in arrows and their bindabl
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -2350,6 +2355,7 @@ exports[`history > multiplayer undo/redo > conflicts in arrows and their bindabl
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -2814,6 +2820,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -3127,6 +3134,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -3456,6 +3464,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -3760,6 +3769,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -4056,6 +4066,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -4301,6 +4312,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -4568,6 +4580,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -4849,6 +4862,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -5088,6 +5102,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -5327,6 +5342,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -5584,6 +5600,7 @@ exports[`history > multiplayer undo/redo > conflicts in bound text elements and 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -5850,6 +5867,7 @@ exports[`history > multiplayer undo/redo > conflicts in frames and their childre
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -6117,6 +6135,7 @@ exports[`history > multiplayer undo/redo > should iterate through the history wh
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -6456,6 +6475,7 @@ exports[`history > multiplayer undo/redo > should iterate through the history wh
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -6896,6 +6916,7 @@ exports[`history > multiplayer undo/redo > should iterate through the history wh
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -7286,6 +7307,7 @@ exports[`history > multiplayer undo/redo > should iterate through the history wh
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -7597,6 +7619,7 @@ exports[`history > multiplayer undo/redo > should iterate through the history wh
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -7899,6 +7922,7 @@ exports[`history > multiplayer undo/redo > should iterate through the history wh
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -8139,6 +8163,7 @@ exports[`history > multiplayer undo/redo > should iterate through the history wh
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -8501,6 +8526,7 @@ exports[`history > multiplayer undo/redo > should iterate through the history wh
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -8869,6 +8895,7 @@ exports[`history > multiplayer undo/redo > should not let remote changes to inte
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -9279,6 +9306,7 @@ exports[`history > multiplayer undo/redo > should not let remote changes to inte
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -9580,6 +9608,7 @@ exports[`history > multiplayer undo/redo > should not let remote changes to inte
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -9854,6 +9883,7 @@ exports[`history > multiplayer undo/redo > should not override remote changes on
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -10129,6 +10159,7 @@ exports[`history > multiplayer undo/redo > should not override remote changes on
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -10372,6 +10403,7 @@ exports[`history > multiplayer undo/redo > should override remotely added groups
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -10678,6 +10710,7 @@ exports[`history > multiplayer undo/redo > should override remotely added points
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -11003,6 +11036,7 @@ exports[`history > multiplayer undo/redo > should redistribute deltas when eleme
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -11252,6 +11286,7 @@ exports[`history > multiplayer undo/redo > should redraw arrows on undo > [end o
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -12187,6 +12222,7 @@ exports[`history > multiplayer undo/redo > should update history entries after r
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -12455,6 +12491,7 @@ exports[`history > singleplayer undo/redo > remounting undo/redo buttons should 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -12702,6 +12739,7 @@ exports[`history > singleplayer undo/redo > should clear the redo stack on eleme
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -12947,6 +12985,7 @@ exports[`history > singleplayer undo/redo > should create entry when selecting f
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -13371,6 +13410,7 @@ exports[`history > singleplayer undo/redo > should create new history entry on e
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -13588,6 +13628,7 @@ exports[`history > singleplayer undo/redo > should create new history entry on e
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -13809,6 +13850,7 @@ exports[`history > singleplayer undo/redo > should create new history entry on i
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -14117,6 +14159,7 @@ exports[`history > singleplayer undo/redo > should create new history entry on i
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -14425,6 +14468,7 @@ exports[`history > singleplayer undo/redo > should create new history entry on s
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -14679,6 +14723,7 @@ exports[`history > singleplayer undo/redo > should disable undo/redo buttons whe
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -14926,6 +14971,7 @@ exports[`history > singleplayer undo/redo > should end up with no history entry 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -15173,6 +15219,7 @@ exports[`history > singleplayer undo/redo > should iterate through the history w
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -15430,6 +15477,7 @@ exports[`history > singleplayer undo/redo > should not clear the redo stack on s
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -15772,6 +15820,7 @@ exports[`history > singleplayer undo/redo > should not collapse when applying co
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -15954,6 +16003,7 @@ exports[`history > singleplayer undo/redo > should not end up with history entry
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -16246,6 +16296,7 @@ exports[`history > singleplayer undo/redo > should not end up with history entry
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -16519,6 +16570,7 @@ exports[`history > singleplayer undo/redo > should not modify anything on unrela
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -16683,6 +16735,7 @@ exports[`history > singleplayer undo/redo > should not override appstate changes
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -16974,6 +17027,7 @@ exports[`history > singleplayer undo/redo > should support appstate name or view
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -17147,6 +17201,7 @@ exports[`history > singleplayer undo/redo > should support bidirectional binding
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -17905,6 +17960,7 @@ exports[`history > singleplayer undo/redo > should support bidirectional binding
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -18561,6 +18617,7 @@ exports[`history > singleplayer undo/redo > should support bidirectional binding
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -19215,6 +19272,7 @@ exports[`history > singleplayer undo/redo > should support bidirectional binding
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -19977,6 +20035,7 @@ exports[`history > singleplayer undo/redo > should support bidirectional binding
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -20755,6 +20814,7 @@ exports[`history > singleplayer undo/redo > should support changes in elements' 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -21247,6 +21307,7 @@ exports[`history > singleplayer undo/redo > should support duplication of groups
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -21763,6 +21824,7 @@ exports[`history > singleplayer undo/redo > should support element creation, del
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -22234,6 +22296,7 @@ exports[`history > singleplayer undo/redo > should support linear element creati
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 

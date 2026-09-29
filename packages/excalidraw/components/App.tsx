@@ -5764,6 +5764,9 @@ class App extends React.Component<AppProps, AppState> {
 
     const initialScale = gesture.initialScale;
     if (initialScale) {
+      if (this.state.zoomLocked) {
+        return;
+      }
       this.setState((state) => ({
         ...getStateForZoom(
           {
@@ -6862,6 +6865,11 @@ class App extends React.Component<AppProps, AppState> {
       initialScale &&
       gesture.initialDistance
     ) {
+      if (this.state.zoomLocked) {
+        // panning still allowed; zooming is locked
+        gesture.lastCenter = getCenter(gesture.pointers);
+        return;
+      }
       const center = getCenter(gesture.pointers);
       const deltaX = center.x - gesture.lastCenter.x;
       const deltaY = center.y - gesture.lastCenter.y;
@@ -13023,6 +13031,9 @@ class App extends React.Component<AppProps, AppState> {
           delta = MAX_STEP * sign;
         }
 
+        if (this.state.zoomLocked) {
+          return;
+        }
         let newZoom = this.state.zoom.value - delta / 100;
         // increase zoom steps the more zoomed-in we are (applies to >100% only)
         newZoom +=

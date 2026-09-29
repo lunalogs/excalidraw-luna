@@ -92,6 +92,8 @@ export type ActionName =
   | "clearCanvas"
   | "zoomIn"
   | "zoomOut"
+  | "zoomToPreset"
+  | "toggleZoomLock"
   | "resetZoom"
   | "zoomToFit"
   | "zoomToFitSelection"

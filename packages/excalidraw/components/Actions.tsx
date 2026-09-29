@@ -1365,6 +1365,10 @@ export const ZoomActions = ({
       {renderAction("resetZoom")}
       {renderAction("zoomIn")}
     </Stack.Row>
+    <Stack.Row align="center" gap={1}>
+      {renderAction("zoomToPreset")}
+      {renderAction("toggleZoomLock")}
+    </Stack.Row>
   </Stack.Col>
 );
 

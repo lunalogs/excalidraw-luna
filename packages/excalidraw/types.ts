@@ -372,6 +372,8 @@ export interface AppState {
   currentItemShapeRecognition: boolean;
   /** 停笔规整等待时间（秒，0.5–3，步进 0.1，SPEC SH-02） */
   currentItemShapeRecognitionDelay: number;
+  /** 锁定缩放：开启后禁止一切缩放（滚轮/捏合/按钮/快捷键） */
+  zoomLocked: boolean;
   /** 当前选中的笔刷预设 id（内置或个人）；null 表示无匹配预设 */
   currentItemBrushPreset: string | null;
   currentItemStrokeStyle: ExcalidrawElement["strokeStyle"];

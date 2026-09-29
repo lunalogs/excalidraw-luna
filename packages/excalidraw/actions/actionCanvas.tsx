@@ -31,6 +31,7 @@ import { Tooltip } from "../components/Tooltip";
 import {
   handIcon,
   LassoIcon,
+  LockedIcon,
   MoonIcon,
   SunIcon,
   TrashIcon,
@@ -138,6 +139,9 @@ export const actionZoomIn = register({
   icon: ZoomInIcon,
   trackEvent: { category: "canvas" },
   perform: (_elements, appState, _, app) => {
+    if (appState.zoomLocked) {
+      return { captureUpdate: CaptureUpdateAction.NEVER };
+    }
     return {
       appState: {
         ...appState,
@@ -179,6 +183,9 @@ export const actionZoomOut = register({
   viewMode: true,
   trackEvent: { category: "canvas" },
   perform: (_elements, appState, _, app) => {
+    if (appState.zoomLocked) {
+      return { captureUpdate: CaptureUpdateAction.NEVER };
+    }
     return {
       appState: {
         ...appState,
@@ -220,6 +227,9 @@ export const actionResetZoom = register({
   viewMode: true,
   trackEvent: { category: "canvas" },
   perform: (_elements, appState, _, app) => {
+    if (appState.zoomLocked) {
+      return { captureUpdate: CaptureUpdateAction.NEVER };
+    }
     return {
       appState: {
         ...appState,
@@ -388,6 +398,79 @@ export const zoomToFit = ({
   });
 };
 
+/** Quick-set zoom to a fixed level (100/200/300%), anchored at the viewport center. */
+export const actionZoomToPreset = register({
+  name: "zoomToPreset",
+  label: "buttons.zoomQuick",
+  viewMode: true,
+  trackEvent: { category: "canvas" },
+  PanelComponent: ({ updateData }) => (
+    <>
+      {[1, 2, 3].map((level) => (
+        <ToolButton
+          key={level}
+          type="button"
+          className="zoom-preset-button zoom-button"
+          title={t("buttons.zoomQuick", { level: level * 100 })}
+          aria-label={t("buttons.zoomQuick", { level: level * 100 })}
+          onClick={() => updateData(level)}
+        >
+          {level * 100}%
+        </ToolButton>
+      ))}
+    </>
+  ),
+  perform: (_elements, appState, data) => {
+    if (appState.zoomLocked) {
+      return { captureUpdate: CaptureUpdateAction.NEVER };
+    }
+    const level = typeof data === "number" ? data : 1;
+    return {
+      appState: {
+        ...appState,
+        ...getStateForZoom(
+          {
+            viewportX: appState.width / 2 + appState.offsetLeft,
+            viewportY: appState.height / 2 + appState.offsetTop,
+            nextZoom: getNormalizedZoom(level),
+          },
+          appState,
+        ),
+        userToFollow: null,
+      },
+      captureUpdate: CaptureUpdateAction.EVENTUALLY,
+    };
+  },
+});
+
+/** Toggle the zoom lock: while locked, no zoom changes are allowed. */
+export const actionToggleZoomLock = register({
+  name: "toggleZoomLock",
+  label: "buttons.zoomLock",
+  viewMode: true,
+  trackEvent: { category: "canvas" },
+  PanelComponent: ({ updateData, appState }) => (
+    <ToolButton
+      type="button"
+      className="zoom-lock-button zoom-button"
+      icon={LockedIcon}
+      title={t(appState.zoomLocked ? "buttons.zoomUnlock" : "buttons.zoomLock")}
+      aria-label={t(
+        appState.zoomLocked ? "buttons.zoomUnlock" : "buttons.zoomLock",
+      )}
+      aria-pressed={appState.zoomLocked}
+      onClick={() => updateData(null)}
+    />
+  ),
+  perform: (_elements, appState) => ({
+    appState: {
+      ...appState,
+      zoomLocked: !appState.zoomLocked,
+    },
+    captureUpdate: CaptureUpdateAction.EVENTUALLY,
+  }),
+});
+
 // Note, this action differs from actionZoomToFitSelection in that it doesn't
 // zoom beyond 100%. In other words, if the content is smaller than viewport
 // size, it won't be zoomed in.
@@ -397,6 +480,9 @@ export const actionZoomToFitSelectionInViewport = register({
   icon: zoomAreaIcon,
   trackEvent: { category: "canvas" },
   perform: (elements, appState, _, app) => {
+    if (appState.zoomLocked) {
+      return { captureUpdate: CaptureUpdateAction.NEVER };
+    }
     const selectedElements = app.scene.getSelectedElements(appState);
     return zoomToFit({
       targetElements: selectedElements.length ? selectedElements : elements,
@@ -423,6 +509,9 @@ export const actionZoomToFitSelection = register({
   icon: zoomAreaIcon,
   trackEvent: { category: "canvas" },
   perform: (elements, appState, _, app) => {
+    if (appState.zoomLocked) {
+      return { captureUpdate: CaptureUpdateAction.NEVER };
+    }
     const selectedElements = app.scene.getSelectedElements(appState);
     return zoomToFit({
       targetElements: selectedElements.length ? selectedElements : elements,
@@ -448,8 +537,11 @@ export const actionZoomToFit = register({
   icon: zoomAreaIcon,
   viewMode: true,
   trackEvent: { category: "canvas" },
-  perform: (elements, appState, _, app) =>
-    zoomToFit({
+  perform: (elements, appState, _, app) => {
+    if (appState.zoomLocked) {
+      return { captureUpdate: CaptureUpdateAction.NEVER };
+    }
+    return zoomToFit({
       targetElements: elements,
       appState: {
         ...appState,
@@ -457,7 +549,8 @@ export const actionZoomToFit = register({
       },
       fitToViewport: false,
       canvasOffsets: app.getEditorUIOffsets(),
-    }),
+    });
+  },
   keyTest: (event) =>
     event.code === CODES.ONE &&
     event.shiftKey &&

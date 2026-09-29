@@ -1004,6 +1004,7 @@ exports[`contextMenu element > right-clicking on a group should select whole gro
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -1209,6 +1210,7 @@ exports[`contextMenu element > selecting 'Add to library' in context menu adds e
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -1431,6 +1433,7 @@ exports[`contextMenu element > selecting 'Bring forward' in context menu brings 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -1772,6 +1775,7 @@ exports[`contextMenu element > selecting 'Bring to front' in context menu brings
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -2115,6 +2119,7 @@ exports[`contextMenu element > selecting 'Copy styles' in context menu copies st
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -2335,6 +2340,7 @@ exports[`contextMenu element > selecting 'Delete' in context menu deletes elemen
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -2588,6 +2594,7 @@ exports[`contextMenu element > selecting 'Duplicate' in context menu duplicates 
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -2901,6 +2908,7 @@ exports[`contextMenu element > selecting 'Group selection' in context menu group
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -3280,6 +3288,7 @@ exports[`contextMenu element > selecting 'Paste styles' in context menu pastes s
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -3781,6 +3790,7 @@ exports[`contextMenu element > selecting 'Send backward' in context menu sends e
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -4114,6 +4124,7 @@ exports[`contextMenu element > selecting 'Send to back' in context menu sends el
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -4450,6 +4461,7 @@ exports[`contextMenu element > selecting 'Ungroup selection' in context menu ung
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -5745,6 +5757,7 @@ exports[`contextMenu element > shows 'Group selection' in context menu for multi
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -6974,6 +6987,7 @@ exports[`contextMenu element > shows 'Ungroup selection' in context menu for gro
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -7937,6 +7951,7 @@ exports[`contextMenu element > shows context menu for canvas > [end of test] app
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -8946,6 +8961,7 @@ exports[`contextMenu element > shows context menu for element > [end of test] ap
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
@@ -9950,6 +9966,7 @@ exports[`contextMenu element > shows context menu for element > [end of test] ap
   "zoom": {
     "value": 1,
   },
+  "zoomLocked": false,
 }
 `;
 
