@@ -51,6 +51,9 @@ it("zoom lock blocks buttons, shortcuts and wheel zoom", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Lock zoom" }));
   expect(h.state.zoomLocked).toBe(true);
+  expect(
+    screen.getByRole("button", { name: "Unlock zoom" }),
+  ).toHaveClass("ToolIcon--selected");
   const locked = h.state.zoom.value;
 
   // toolbar buttons
@@ -74,6 +77,9 @@ it("zoom lock blocks buttons, shortcuts and wheel zoom", () => {
   // unlock restores zooming
   fireEvent.click(screen.getByRole("button", { name: "Unlock zoom" }));
   expect(h.state.zoomLocked).toBe(false);
+  expect(
+    screen.getByRole("button", { name: "Lock zoom" }),
+  ).not.toHaveClass("ToolIcon--selected");
   zoomIn();
   expect(h.state.zoom.value).toBeGreaterThan(locked);
 });

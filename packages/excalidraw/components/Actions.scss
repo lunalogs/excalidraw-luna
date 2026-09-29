@@ -226,7 +226,7 @@
     border-top-right-radius: var(--border-radius-lg) !important;
     border-bottom-right-radius: var(--border-radius-lg) !important;
 
-    &[aria-pressed="true"] {
+    &.ToolIcon--selected {
       color: var(--color-primary);
       background-color: var(--color-primary-light) !important;
     }

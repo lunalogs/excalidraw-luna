@@ -465,7 +465,7 @@ export const actionToggleZoomLock = register({
       aria-label={t(
         appState.zoomLocked ? "buttons.zoomUnlock" : "buttons.zoomLock",
       )}
-      aria-pressed={appState.zoomLocked}
+      selected={appState.zoomLocked}
       onClick={() => updateData(null)}
     />
   ),
