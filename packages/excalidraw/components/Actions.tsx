@@ -1359,17 +1359,21 @@ export const ZoomActions = ({
   renderAction: ActionManager["renderAction"];
   zoom: Zoom;
 }) => (
-  <Stack.Col gap={1} className={CLASSES.ZOOM_ACTIONS}>
-    <Stack.Row align="center">
-      {renderAction("zoomOut")}
-      {renderAction("resetZoom")}
-      {renderAction("zoomIn")}
-    </Stack.Row>
-    <Stack.Row align="center" gap={1}>
-      {renderAction("zoomToPreset")}
-      {renderAction("toggleZoomLock")}
-    </Stack.Row>
-  </Stack.Col>
+  <Stack.Row gap={1} align="center">
+    <Stack.Col className={CLASSES.ZOOM_ACTIONS}>
+      <Stack.Row align="center">
+        {renderAction("zoomOut")}
+        {renderAction("resetZoom")}
+        {renderAction("zoomIn")}
+      </Stack.Row>
+    </Stack.Col>
+    <Stack.Col className="zoom-actions zoom-actions--presets">
+      <Stack.Row align="center">
+        {renderAction("zoomToPreset")}
+        {renderAction("toggleZoomLock")}
+      </Stack.Row>
+    </Stack.Col>
+  </Stack.Row>
 );
 
 export const UndoRedoActions = ({

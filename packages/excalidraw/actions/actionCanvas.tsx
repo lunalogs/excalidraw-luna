@@ -410,7 +410,9 @@ export const actionZoomToPreset = register({
         <ToolButton
           key={level}
           type="button"
-          className="zoom-preset-button zoom-button"
+          className={`zoom-preset-button zoom-button${
+            level === 1 ? " zoom-preset-first" : ""
+          }`}
           title={t("buttons.zoomQuick", { level: level * 100 })}
           aria-label={t("buttons.zoomQuick", { level: level * 100 })}
           onClick={() => updateData(level)}

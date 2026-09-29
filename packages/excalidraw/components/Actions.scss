@@ -206,3 +206,29 @@
   --button-hover-bg: #363541;
   --button-bg: var(--color-surface-high);
 }
+
+.zoom-actions--presets {
+  .zoom-preset-button {
+    width: auto !important;
+    min-width: var(--lg-button-size);
+    padding: 0 0.4rem !important;
+    font-size: 0.75rem !important;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary-color);
+  }
+
+  .zoom-preset-first {
+    border-top-left-radius: var(--border-radius-lg) !important;
+    border-bottom-left-radius: var(--border-radius-lg) !important;
+  }
+
+  .zoom-lock-button {
+    border-top-right-radius: var(--border-radius-lg) !important;
+    border-bottom-right-radius: var(--border-radius-lg) !important;
+
+    &[aria-pressed="true"] {
+      color: var(--color-primary);
+      background-color: var(--color-primary-light) !important;
+    }
+  }
+}
