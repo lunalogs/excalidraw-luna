@@ -124,3 +124,7 @@ v1持久变换使用等比缩放+平移（可编码为6项仿射矩阵，禁止�
 - [UIDocumentBrowserViewController](https://developer.apple.com/documentation/uikit/uidocumentbrowserviewcontroller)：本地/iCloud文件提供者。
 
 默认直接接入官方PencilKit，不为一个薄封装引入整套第三方App。GitHub示例可参考但先审许可证和目标系统，不把项目README当实际验证证据。无付费识别API、无新GitHub仓库要求。
+
+## 9. 2026-09-29 用户补充：保留固定比例按钮
+
+左下现有100%/200%/300%快捷比例、当前比例高亮及缩放锁是已确认需求，原生整合不得删除。它们控制网页/原生共享视口，不修改文档笔迹变换；锁阻止视口缩放但允许平移、写字和选中对象缩放。两端缩放源必须走统一视口入口，详见0027复核记录。

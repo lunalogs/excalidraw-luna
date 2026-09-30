@@ -1,0 +1,35 @@
+import {
+  LUNA_CANVAS_SCHEMA_VERSION,
+  LUNA_CANVAS_TYPE,
+  validateManifest,
+  type LunaCanvasManifest,
+} from "../lunacanvas/manifest";
+
+const validManifest = (): Record<string, unknown> => ({
+  type: LUNA_CANVAS_TYPE,
+  schemaVersion: LUNA_CANVAS_SCHEMA_VERSION,
+  documentId: "doc-1",
+  revision: 3,
+  capabilities: ["ink", "graphics"],
+  sceneRef: "scene/excalidraw.json",
+  layerStrategy: "ink-above-graphics",
+  inkObjects: [
+    {
+      objectId: "ink-1",
+      nativeAssetRef: "ink/ink-1.drawing",
+      previewRef: "previews/ink-1.png",
+      hitGeometryRef: "hit/ink-1.json",
+      worldTransform: [1, 0, 0, 1, 10, 20],
+      order: 0,
+      contentVersion: 1,
+      contentHash: "sha256:abc",
+    },
+  ],
+  resources: [{ path: "ink/ink-1.drawing", sha256: "abc", byteSize: 128 }],
+});
+
+
+it.each([[2,0,0,1,0,0],[-1,0,0,-1,0,0]])("rejects unsupported transform %j", (...t) => {
+ const m=validManifest(); (m.inkObjects as Record<string,unknown>[])[0].worldTransform=t; expect(validateManifest(m).ok).toBe(false);
+});
+it("rejects malformed capabilities", () => { const m=validManifest(); m.capabilities=42; expect(validateManifest(m).ok).toBe(false); });

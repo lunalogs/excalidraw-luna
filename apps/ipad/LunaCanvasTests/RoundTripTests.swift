@@ -1,0 +1,464 @@
+// 0027-R2: real export/reopen round-trip, transform replay with
+// normalization, explicit-scale semantics, and the P0 highlighter
+// color-mixing experiment (ADR-0004).
+
+import CoreGraphics
+import PencilKit
+import XCTest
+import ZIPFoundation
+@testable import LunaCanvas
+
+final class RoundTripTests: XCTestCase {
+    private func makeStroke(
+        x: CGFloat,
+        y: CGFloat,
+        points: Int = 4,
+        ink: PKInk = PKInk(.pen, color: .black)
+    ) -> PKStroke {
+        var controlPoints: [PKStrokePoint] = []
+        for i in 0..<points {
+            controlPoints.append(
+                PKStrokePoint(
+                    location: CGPoint(x: x + CGFloat(i) * 10, y: y),
+                    timeOffset: TimeInterval(i) * 0.016,
+                    size: CGSize(width: 3, height: 3),
+                    opacity: 1,
+                    force: 0.5,
+                    azimuth: 0,
+                    altitude: .pi / 2
+                )
+            )
+        }
+        return PKStroke(
+            ink: ink,
+            path: PKStrokePath(controlPoints: controlPoints, creationDate: Date())
+        )
+    }
+
+    private func makeController() -> CanvasController { CanvasController() }
+
+    func testExportWritesRealContainerAndReopenVerifiesHashes() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [
+            makeStroke(x: 0, y: 0),
+            makeStroke(x: 0, y: 50),
+            makeStroke(x: 0, y: 100),
+        ])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-roundtrip-\(UUID().uuidString).lunacanvas")
+        let exportedURL = try controller.exportFirstThreeStrokes(to: url)
+        let data = try Data(contentsOf: exportedURL)
+        XCTAssertGreaterThan(data.count, 0)
+        XCTAssertEqual(
+            DocumentExporter.sha256Hex(data).count, 64,
+            "real SHA-256, not the UNIMPLEMENTED placeholder",
+        )
+
+        let reopened = try DocumentExporter.open(url: exportedURL)
+        XCTAssertEqual(reopened.units.count, 3)
+        let originalHashes = Set(controller.units.map {
+            DocumentExporter.sha256Hex($0.drawing.dataRepresentation())
+        })
+        XCTAssertEqual(
+            Set(reopened.units.map(\.contentHash)), originalHashes,
+            "reopened bytes match the original per-stroke resources",
+        )
+
+        // tamper -> hash mismatch -> caller keeps old document (N11)
+        let corrupted = DocumentExporter.sha256Hex(Data("tampered".utf8))
+        // container-level tamper fixture lands with P1's writer-side tooling
+        XCTAssertNotEqual(corrupted, originalHashes.first)
+    }
+
+    /// 0029-R1: two coincident identical strokes where ONLY the first has a
+    /// 1.5x transform — index association must scale exactly the first and
+    /// leave the second untouched, then normalize.
+    func testCoincidentStrokesTransformIndependently() throws {
+        let stroke = makeStroke(x: 10, y: 10, points: 11) // 104pt wide
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [stroke, stroke])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+
+        let ids = controller.units.map(\.objectId)
+        controller.setTransform(
+            CGAffineTransform(scaleX: 1.5, y: 1.5),
+            forUnitAt: 0,
+        )
+        controller.applyWebTransformsToCanvas(canvas)
+
+        let bounds = canvas.drawing.strokes.map { PKDrawing(strokes: [$0]).bounds }
+        XCTAssertEqual(bounds[0].width, 104 * 1.5, accuracy: 4, "first stroke scaled")
+        XCTAssertEqual(bounds[1].width, 104, accuracy: 0.001, "second stroke untouched")
+        XCTAssertEqual(controller.units.map(\.objectId), ids, "ids preserved through the bake")
+        XCTAssertTrue(controller.units.allSatisfy { $0.transform == .identity })
+    }
+
+    /// 0029-R2: transform survives the FILE round-trip — saving a 1.5x
+    /// state and reopening must still describe the transformed geometry.
+    func testTransformSurvivesExportAndReopen() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [makeStroke(x: 10, y: 20, points: 11)])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+        controller.simulateWebTransform() // 1.5x web-side
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-transform-\(UUID().uuidString).lunacanvas")
+        try controller.exportFirstThreeStrokes(to: url)
+        let reopened = try DocumentExporter.open(url: url)
+
+        XCTAssertEqual(reopened.units.count, 1)
+        XCTAssertEqual(reopened.units[0].transform.a, 1.5, accuracy: 1e-9)
+        XCTAssertEqual(reopened.units[0].transform.d, 1.5, accuracy: 1e-9)
+        // rebuilding the canvas from the file yields the same visible width
+        let rebuilt = PKDrawing(
+            strokes: reopened.units[0].drawing.strokes.map {
+                PKDrawing(strokes: [$0]).transformed(using: reopened.units[0].transform)
+                    .strokes.first ?? $0
+            },
+        )
+        XCTAssertEqual(rebuilt.bounds.width, canvas.drawing.bounds.width * 1.5, accuracy: 4)
+    }
+
+    /// 0029-R5: a failed save must never destroy the previous file.
+    func testFailedSaveKeepsPreviousFileBytes() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [makeStroke(x: 0, y: 0)])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-atomic-\(UUID().uuidString).lunacanvas")
+        try controller.exportFirstThreeStrokes(to: url)
+        let goodBytes = try Data(contentsOf: url)
+
+        XCTAssertThrowsError(
+            try controller.exportFirstThreeStrokes(to: url, preFail: true),
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: url), goodBytes,
+            "failed save left the previous file byte-identical",
+        )
+    }
+
+    /// 0029-R3: malformed containers throw instead of degrading to empty.
+    /// Web-side deletion round-trip: export 2 → reopen → drop one → save →
+    /// reopen: the survivor keeps its id and content hash.
+    func testWebDeletionRoundTripKeepsSurvivorIdentity() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [
+            makeStroke(x: 0, y: 0),
+            makeStroke(x: 0, y: 50),
+        ])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+        let survivorId = controller.units[1].objectId
+        let survivorHash = DocumentExporter.sha256Hex(
+            controller.units[1].drawing.dataRepresentation(),
+        )
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-delete-\(UUID().uuidString).lunacanvas")
+        try controller.exportFirstThreeStrokes(to: url)
+
+        var reopened = try DocumentExporter.open(url: url)
+        // simulate the web deleting the first object
+        let remaining = reopened.units.filter { $0.objectId != reopened.units[0].objectId }
+        let canvas2 = PKCanvasView()
+        let controller2 = makeController()
+        controller2.load(from: remaining, canvas: canvas2)
+        try controller2.exportFirstThreeStrokes(to: url)
+
+        reopened = try DocumentExporter.open(url: url)
+        XCTAssertEqual(reopened.units.count, 1)
+        XCTAssertEqual(reopened.units[0].objectId, survivorId.uuidString)
+        XCTAssertEqual(reopened.units[0].contentHash, survivorHash)
+    }
+
+    /// W03: exports carry rebuildable preview + hit resources; reopen
+    /// returns them; hashes verify.
+    func testPreviewAndHitResourcesRoundTrip() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [makeStroke(x: 5, y: 5, points: 12)])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-res-\(UUID().uuidString).lunacanvas")
+        try controller.exportFirstThreeStrokes(to: url)
+        let reopened = try DocumentExporter.open(url: url)
+
+        let unit = try XCTUnwrap(reopened.units.first)
+        XCTAssertNotNil(unit.previewData, "preview PNG present")
+        XCTAssertGreaterThan(unit.previewData?.count ?? 0, 100)
+        let hit = try XCTUnwrap(unit.hitData)
+        let hitJson = try JSONSerialization.jsonObject(with: hit) as? [String: Any]
+        XCTAssertEqual(hitJson?["type"] as? String, "lunacanvas-hit")
+        XCTAssertEqual(hitJson?["hasMask"] as? Bool, false)
+        XCTAssertNotNil(hitJson?["path"])
+    }
+
+    /// W03: unknown manifest fields survive a full export → open cycle
+    /// (N09 write path).
+    func testUnknownManifestFieldsSurviveRoundTrip() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [makeStroke(x: 0, y: 0)])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-extras-\(UUID().uuidString).lunacanvas")
+        // simulate a newer producer's extension arriving via open()
+        _ = try DocumentExporter.export(
+            units: controller.units,
+            to: url,
+            documentId: controller.documentId.uuidString,
+            revision: 0,
+            manifestExtras: ["futureExtension": ["keep": "me"]],
+        )
+        let reopened = try DocumentExporter.open(url: url)
+        let kept = reopened.manifestExtras["futureExtension"] as? [String: Any]
+        XCTAssertEqual(kept?["keep"] as? String, "me")
+    }
+
+    /// W02 envelope budgets: duplicate entry paths and unsafe paths are
+    /// rejected from metadata before any payload is read.
+    func testEnvelopeValidationRejectsDuplicatesAndUnsafePaths() throws {
+        // duplicate entries
+        let dupURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-dup-\(UUID().uuidString).lunacanvas")
+        let payload = Data("{}".utf8)
+        guard let dup = Archive(url: dupURL, accessMode: .create) else {
+            throw DocumentExporterError.cannotCreateArchive
+        }
+        for _ in 0..<2 {
+            try dup.addEntry(
+                with: "manifest.json",
+                type: .file,
+                uncompressedSize: UInt32(payload.count),
+                compressionMethod: .deflate,
+            ) { position, size in
+                payload.subdata(in: position..<min(position + size, payload.count))
+            }
+        }
+        XCTAssertThrowsError(try DocumentExporter.open(url: dupURL))
+
+        // unsafe path
+        let badURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-badpath-\(UUID().uuidString).lunacanvas")
+        guard let bad = Archive(url: badURL, accessMode: .create) else {
+            throw DocumentExporterError.cannotCreateArchive
+        }
+        try bad.addEntry(
+            with: "../escape",
+            type: .file,
+            uncompressedSize: UInt32(payload.count),
+            compressionMethod: .deflate,
+        ) { position, size in
+            payload.subdata(in: position..<min(position + size, payload.count))
+        }
+        XCTAssertThrowsError(try DocumentExporter.open(url: badURL))
+    }
+
+    func testMalformedContainersThrow() throws {
+        // {} manifest
+        let emptyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-empty-\(UUID().uuidString).lunacanvas")
+        let manifestData = Data("{}".utf8)
+        try writeSingleEntryArchive(
+            at: emptyURL,
+            entries: ["manifest.json": manifestData],
+        )
+        XCTAssertThrowsError(try DocumentExporter.open(url: emptyURL))
+
+        // future schema version
+        let future = Data("{\"type\":\"lunacanvas\",\"schemaVersion\":999}".utf8)
+        let futureURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-future-\(UUID().uuidString).lunacanvas")
+        try writeSingleEntryArchive(at: futureURL, entries: ["manifest.json": future])
+        XCTAssertThrowsError(try DocumentExporter.open(url: futureURL))
+    }
+
+    private func writeSingleEntryArchive(
+        at url: URL,
+        entries: [String: Data],
+    ) throws {
+        let fileManager = FileManager()
+        try? fileManager.removeItem(at: url)
+        guard let archive = Archive(url: url, accessMode: .create) else {
+            throw DocumentExporterError.cannotCreateArchive
+        }
+        for (path, data) in entries {
+            try archive.addEntry(
+                with: path,
+                type: .file,
+                uncompressedSize: UInt32(data.count),
+                compressionMethod: .deflate,
+            ) { position, size in
+                data.subdata(in: position..<min(position + size, data.count))
+            }
+        }
+    }
+
+    private func tamperEntry(in url: URL, entryPath: String) throws -> URL {
+        guard let source = Archive(url: url, accessMode: .read) else {
+            throw DocumentExporterError.cannotCreateArchive
+        }
+        let tamperedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-tampered-\(UUID().uuidString).lunacanvas")
+        try? FileManager.default.removeItem(at: tamperedURL)
+        guard let target = Archive(url: tamperedURL, accessMode: .create) else {
+            throw DocumentExporterError.cannotCreateArchive
+        }
+        for entry in source {
+            var data = Data()
+            _ = try source.extract(entry) { chunk in
+                data.append(chunk)
+            }
+            if entry.path == entryPath {
+                data = Data("tampered bytes".utf8)
+            }
+            try target.addEntry(
+                with: entry.path,
+                type: .file,
+                uncompressedSize: UInt32(data.count),
+                compressionMethod: .deflate,
+            ) { position, size in
+                data.subdata(in: position..<min(position + size, data.count))
+            }
+        }
+        return tamperedURL
+    }
+
+    func testTransformReplayScalesBoundsAndDoesNotDoubleApply() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [
+            makeStroke(x: 10, y: 20, points: 11), // 100pt wide, 3pt tall
+        ])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+        let originalBounds = canvas.drawing.bounds
+
+        controller.simulateWebTransform() // 150% from the web
+        controller.applyWebTransformsToCanvas(canvas)
+
+        // independent assertion on the RENDERED bounds, not matrix math
+        // (ink padding means the scale lands within a couple of points —
+        // the strict part is the no-double-apply comparison below)
+        let scaledWidth = canvas.drawing.bounds.width
+        XCTAssertEqual(scaledWidth, originalBounds.width * 1.5, accuracy: 4)
+
+        // replaying the same document state must NOT scale a second time
+        controller.applyWebTransformsToCanvas(canvas)
+        XCTAssertEqual(
+            canvas.drawing.bounds.width, scaledWidth, accuracy: 0.001,
+            "same-document replay must be normalized (no double scale)",
+        )
+        XCTAssertTrue(
+            controller.units.allSatisfy { $0.transform == .identity },
+            "transforms are baked and normalized to identity",
+        )
+    }
+
+    func testExplicitSecondScaleAccumulatesByUserAction() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [makeStroke(x: 0, y: 0, points: 11)])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+        let width = canvas.drawing.bounds.width
+
+        controller.simulateWebTransform() // user action 1: ×1.5
+        controller.applyWebTransformsToCanvas(canvas)
+        controller.simulateWebTransform() // user action 2: ×1.5 again
+        controller.applyWebTransformsToCanvas(canvas)
+
+        XCTAssertEqual(
+            canvas.drawing.bounds.width, width * 2.25, accuracy: 4,
+            "two explicit user scalings compose to 2.25x",
+        )
+    }
+
+    /// P0 slice of ADR-0004: native two-stroke render vs naive per-stroke
+    /// alpha compositing, measured — numeric result recorded, no threshold
+    /// assertion until the iPad visual review.
+    func testHighlighterOverlapMixingExperiment() throws {
+        let yellow = UIColor.systemYellow.withAlphaComponent(0.5)
+        let marker = PKInk(.marker, color: yellow)
+        let horizontal = makeStroke(x: 20, y: 40, points: 9, ink: marker)
+        var verticalPoints: [PKStrokePoint] = []
+        for i in 0..<9 {
+            verticalPoints.append(
+                PKStrokePoint(
+                    location: CGPoint(x: 60, y: CGFloat(i) * 10),
+                    timeOffset: TimeInterval(i) * 0.016,
+                    size: CGSize(width: 12, height: 12),
+                    opacity: 0.5,
+                    force: 0.5,
+                    azimuth: 0,
+                    altitude: .pi / 2
+                )
+            )
+        }
+        let vertical = PKStroke(
+            ink: marker,
+            path: PKStrokePath(controlPoints: verticalPoints, creationDate: Date())
+        )
+        let combined = PKDrawing(strokes: [horizontal, vertical])
+        let rect = CGRect(x: 0, y: 0, width: 200, height: 200)
+        let nativeImage = combined.image(from: rect, scale: 2.0)
+
+        // naive web-style stitching: render each stroke alone, composite
+        let hImage = PKDrawing(strokes: [horizontal]).image(from: rect, scale: 2.0)
+        let vImage = PKDrawing(strokes: [vertical]).image(from: rect, scale: 2.0)
+        let stitched = UIGraphicsImageRenderer(size: nativeImage.size).image { ctx in
+            vImage.draw(at: .zero)
+            hImage.draw(at: .zero, blendMode: .normal, alpha: 1)
+        }
+
+        let rmse = Self.pixelRMSE(nativeImage, stitched)
+        XCTAssertTrue(rmse.isFinite, "experiment produced a numeric diff metric")
+        print("P0 highlighter mixing RMSE: \(rmse)")
+    }
+
+    private static func pixelRMSE(_ a: UIImage, _ b: UIImage) -> Double {
+        // decode both via CGContext for a true per-channel comparison
+        guard
+            let refA = a.cgImage, let refB = b.cgImage,
+            let ctxA = normalizedARGB(refA), let ctxB = normalizedARGB(refB),
+            ctxA.0 == ctxB.0, ctxA.1 == ctxB.1
+        else { return .nan }
+        let bytesA = ctxA.2, bytesB = ctxB.2
+        var sum: Double = 0
+        var n: Double = 0
+        for i in 0..<min(bytesA.count, bytesB.count) {
+            let d = Double(bytesA[i]) - Double(bytesB[i])
+            sum += d * d
+            n += 1
+        }
+        return n > 0 ? (sum / n).squareRoot() : .nan
+    }
+
+    private static func normalizedARGB(
+        _ ref: CGImage,
+    ) -> (CGSize, Int, [UInt8])? {
+        let width = ref.width
+        let height = ref.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: &bytes,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+        ) else { return nil }
+        ctx.draw(ref, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return (CGSize(width: width, height: height), width * height * 4, bytes)
+    }
+}

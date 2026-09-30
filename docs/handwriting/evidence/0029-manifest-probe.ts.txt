@@ -1,0 +1,4 @@
+import { validateManifest } from "../lunacanvas/manifest";
+it("invalid ink entry returns a validation result instead of throwing", () => {
+  expect(validateManifest({inkObjects: [null], resources: []}).ok).toBe(false);
+});

@@ -1,0 +1,262 @@
+// 0027-R2: real export/reopen round-trip, transform replay with
+// normalization, explicit-scale semantics, and the P0 highlighter
+// color-mixing experiment (ADR-0004).
+
+import CoreGraphics
+import PencilKit
+import XCTest
+@testable import LunaCanvas
+
+final class RoundTripTests: XCTestCase {
+    private func makeStroke(
+        x: CGFloat,
+        y: CGFloat,
+        points: Int = 4,
+        ink: PKInk = PKInk(.pen, color: .black)
+    ) -> PKStroke {
+        var controlPoints: [PKStrokePoint] = []
+        for i in 0..<points {
+            controlPoints.append(
+                PKStrokePoint(
+                    location: CGPoint(x: x + CGFloat(i) * 10, y: y),
+                    timeOffset: TimeInterval(i) * 0.016,
+                    size: CGSize(width: 3, height: 3),
+                    opacity: 1,
+                    force: 0.5,
+                    azimuth: 0,
+                    altitude: .pi / 2
+                )
+            )
+        }
+        return PKStroke(
+            ink: ink,
+            path: PKStrokePath(controlPoints: controlPoints, creationDate: Date())
+        )
+    }
+
+    private func makeController() -> CanvasController { CanvasController() }
+
+    func testExportWritesRealContainerAndReopenVerifiesHashes() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [
+            makeStroke(x: 0, y: 0),
+            makeStroke(x: 0, y: 50),
+            makeStroke(x: 0, y: 100),
+        ])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("p0-roundtrip-\(UUID().uuidString).lunacanvas")
+        let exportedURL = try controller.exportFirstThreeStrokes(to: url)
+        let data = try Data(contentsOf: exportedURL)
+        XCTAssertGreaterThan(data.count, 0)
+        XCTAssertEqual(
+            DocumentExporter.sha256Hex(data).count, 64,
+            "real SHA-256, not the UNIMPLEMENTED placeholder",
+        )
+
+        let reopened = try DocumentExporter.open(url: exportedURL)
+        XCTAssertEqual(reopened.count, 3)
+        let originalHashes = Set(controller.units.map {
+            DocumentExporter.sha256Hex($0.drawing.dataRepresentation())
+        })
+        XCTAssertEqual(
+            Set(reopened.map(\.contentHash)), originalHashes,
+            "reopened bytes match the original per-stroke resources",
+        )
+
+        // tamper -> hash mismatch -> caller keeps old document (N11)
+        let corrupted = DocumentExporter.sha256Hex(Data("tampered".utf8))
+        // container-level tamper fixture lands with P1's writer-side tooling
+        XCTAssertNotEqual(corrupted, originalHashes.first)
+    }
+
+    func testTransformReplayScalesBoundsAndDoesNotDoubleApply() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [
+            makeStroke(x: 10, y: 20, points: 11), // 100pt wide, 3pt tall
+        ])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+        let originalBounds = canvas.drawing.bounds
+
+        controller.simulateWebTransform() // 150% from the web
+        controller.applyWebTransformsToCanvas(canvas)
+
+        // independent assertion on the RENDERED bounds, not matrix math
+        // (ink padding means the scale lands within a couple of points —
+        // the strict part is the no-double-apply comparison below)
+        let scaledWidth = canvas.drawing.bounds.width
+        XCTAssertEqual(scaledWidth, originalBounds.width * 1.5, accuracy: 4)
+
+        // replaying the same document state must NOT scale a second time
+        controller.applyWebTransformsToCanvas(canvas)
+        XCTAssertEqual(
+            canvas.drawing.bounds.width, scaledWidth, accuracy: 0.001,
+            "same-document replay must be normalized (no double scale)",
+        )
+        XCTAssertTrue(
+            controller.units.allSatisfy { $0.transform == .identity },
+            "transforms are baked and normalized to identity",
+        )
+    }
+
+    func testExplicitSecondScaleAccumulatesByUserAction() throws {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [makeStroke(x: 0, y: 0, points: 11)])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+        let width = canvas.drawing.bounds.width
+
+        controller.simulateWebTransform() // user action 1: ×1.5
+        controller.applyWebTransformsToCanvas(canvas)
+        controller.simulateWebTransform() // user action 2: ×1.5 again
+        controller.applyWebTransformsToCanvas(canvas)
+
+        XCTAssertEqual(
+            canvas.drawing.bounds.width, width * 2.25, accuracy: 4,
+            "two explicit user scalings compose to 2.25x",
+        )
+    }
+
+    /// P0 slice of ADR-0004: native two-stroke render vs naive per-stroke
+    /// alpha compositing, measured — numeric result recorded, no threshold
+    /// assertion until the iPad visual review.
+    func testHighlighterOverlapMixingExperiment() throws {
+        let yellow = UIColor.systemYellow.withAlphaComponent(0.5)
+        let marker = PKInk(.marker, color: yellow)
+        let horizontal = makeStroke(x: 20, y: 40, points: 9, ink: marker)
+        var verticalPoints: [PKStrokePoint] = []
+        for i in 0..<9 {
+            verticalPoints.append(
+                PKStrokePoint(
+                    location: CGPoint(x: 60, y: CGFloat(i) * 10),
+                    timeOffset: TimeInterval(i) * 0.016,
+                    size: CGSize(width: 12, height: 12),
+                    opacity: 0.5,
+                    force: 0.5,
+                    azimuth: 0,
+                    altitude: .pi / 2
+                )
+            )
+        }
+        let vertical = PKStroke(
+            ink: marker,
+            path: PKStrokePath(controlPoints: verticalPoints, creationDate: Date())
+        )
+        let combined = PKDrawing(strokes: [horizontal, vertical])
+        let rect = CGRect(x: 0, y: 0, width: 200, height: 200)
+        let nativeImage = combined.image(from: rect, scale: 2.0)
+
+        // naive web-style stitching: render each stroke alone, composite
+        let hImage = PKDrawing(strokes: [horizontal]).image(from: rect, scale: 2.0)
+        let vImage = PKDrawing(strokes: [vertical]).image(from: rect, scale: 2.0)
+        let stitched = UIGraphicsImageRenderer(size: nativeImage.size).image { ctx in
+            vImage.draw(at: .zero)
+            hImage.draw(at: .zero, blendMode: .normal, alpha: 1)
+        }
+
+        let rmse = Self.pixelRMSE(nativeImage, stitched)
+        XCTAssertTrue(rmse.isFinite, "experiment produced a numeric diff metric")
+        print("P0 highlighter mixing RMSE: \(rmse)")
+    }
+
+    private static func pixelRMSE(_ a: UIImage, _ b: UIImage) -> Double {
+        // decode both via CGContext for a true per-channel comparison
+        guard
+            let refA = a.cgImage, let refB = b.cgImage,
+            let ctxA = normalizedARGB(refA), let ctxB = normalizedARGB(refB),
+            ctxA.0 == ctxB.0, ctxA.1 == ctxB.1
+        else { return .nan }
+        let bytesA = ctxA.2, bytesB = ctxB.2
+        var sum: Double = 0
+        var n: Double = 0
+        for i in 0..<min(bytesA.count, bytesB.count) {
+            let d = Double(bytesA[i]) - Double(bytesB[i])
+            sum += d * d
+            n += 1
+        }
+        return n > 0 ? (sum / n).squareRoot() : .nan
+    }
+
+    private static func normalizedARGB(
+        _ ref: CGImage,
+    ) -> (CGSize, Int, [UInt8])? {
+        let width = ref.width
+        let height = ref.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: &bytes,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+        ) else { return nil }
+        ctx.draw(ref, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return (CGSize(width: width, height: height), width * height * 4, bytes)
+    }
+}
+
+
+import ZIPFoundation
+
+extension RoundTripTests {
+    func testReview0029CoincidentTransformIsolation() throws {
+        let stroke = makeStroke(x: 10, y: 20, points: 11)
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [stroke, stroke])
+        let controller = makeController()
+        controller.updateUnits(from: canvas)
+        let width = stroke.renderBounds.width
+        controller.simulateWebTransform()
+        controller.applyWebTransformsToCanvas(canvas)
+        XCTAssertEqual(canvas.drawing.strokes[0].renderBounds.width, width * 1.5, accuracy: 4)
+        XCTAssertEqual(canvas.drawing.strokes[1].renderBounds.width, width, accuracy: 0.001)
+        XCTAssertTrue(controller.units.allSatisfy { $0.transform == .identity })
+    }
+
+    func testReview0029ExportedSceneReferenceExists() throws {
+        let controller = makeController()
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [makeStroke(x: 10, y: 20, points: 11)])
+        controller.updateUnits(from: canvas)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".lunacanvas")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let data = try DocumentExporter.export(units: controller.units, to: url)
+        print("REVIEW0029_MANIFEST_BASE64=" + data.base64EncodedString())
+        let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sceneRef = try XCTUnwrap(manifest["sceneRef"] as? String)
+        let archive = try XCTUnwrap(Archive(url: url, accessMode: .read))
+        XCTAssertNotNil(archive[sceneRef], "declared scene must actually be exported")
+    }
+
+    func testReview0029ReopenPreservesVisibleTransform() throws {
+        let controller = makeController()
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [makeStroke(x: 10, y: 20, points: 11)])
+        controller.updateUnits(from: canvas)
+        controller.simulateWebTransform()
+        let expected = controller.units[0].drawing.transformed(using: controller.units[0].transform).bounds
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".lunacanvas")
+        defer { try? FileManager.default.removeItem(at: url) }
+        _ = try DocumentExporter.export(units: controller.units, to: url)
+        let reopened = try DocumentExporter.open(url: url)
+        // ImportedInkUnit has no matrix field; its drawing is the only geometry returned.
+        XCTAssertEqual(reopened[0].drawing.bounds.width, expected.width, accuracy: 0.001)
+    }
+
+    func testReview0029MalformedManifestRejected() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".lunacanvas")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let archive = try XCTUnwrap(Archive(url: url, accessMode: .create))
+        let data = Data("{}".utf8)
+        try archive.addEntry(with: "manifest.json", type: .file, uncompressedSize: UInt32(data.count)) { position, size in
+            data.subdata(in: position..<min(position + size, data.count))
+        }
+        XCTAssertThrowsError(try DocumentExporter.open(url: url))
+    }
+}

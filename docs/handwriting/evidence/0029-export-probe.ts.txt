@@ -1,0 +1,40 @@
+import { validateManifest } from "../lunacanvas/manifest";
+it("actual Swift exporter output satisfies shared schema", () => {
+  const result = validateManifest({
+  "capabilities" : [
+    "ink"
+  ],
+  "documentId" : "519FD22A-B66B-47D9-848D-0AFE81BBBA68",
+  "inkObjects" : [
+    {
+      "contentHash" : "bdf2b413ee3a0dadafae6e38b95be3ced01614e61067d78f6190d783232cebf5",
+      "contentVersion" : 1,
+      "nativeAssetRef" : "ink\/5374DDF3-1C20-488B-BF0F-2DD9D085F144.drawing",
+      "objectId" : "5374DDF3-1C20-488B-BF0F-2DD9D085F144",
+      "order" : 0,
+      "worldTransform" : [
+        1,
+        0,
+        0,
+        1,
+        0,
+        0
+      ]
+    }
+  ],
+  "layerStrategy" : "ink-above-graphics",
+  "resources" : [
+    {
+      "byteSize" : 408,
+      "path" : "ink\/5374DDF3-1C20-488B-BF0F-2DD9D085F144.drawing",
+      "sha256" : "bdf2b413ee3a0dadafae6e38b95be3ced01614e61067d78f6190d783232cebf5"
+    }
+  ],
+  "revision" : 1,
+  "sceneRef" : "scene\/excalidraw.json",
+  "schemaVersion" : 1,
+  "type" : "lunacanvas"
+});
+  expect(result.errors).toEqual([]);
+  expect(result.ok).toBe(true);
+});

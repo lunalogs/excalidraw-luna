@@ -1,0 +1,19 @@
+{
+  "": {
+    "swift-dependencies": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/master.swiftdeps"
+  },
+  "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/Sources/fixturegen/LunaArchive.swift": {
+    "dependencies": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/LunaArchive.d",
+    "object": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/LunaArchive.swift.o",
+    "swiftmodule": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/LunaArchive~partial.swiftmodule",
+    "swift-dependencies": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/LunaArchive.swiftdeps",
+    "diagnostics": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/LunaArchive.dia"
+  },
+  "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/Sources/fixturegen/main.swift": {
+    "dependencies": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/main.d",
+    "object": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/main.swift.o",
+    "swiftmodule": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/main~partial.swiftmodule",
+    "swift-dependencies": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/main.swiftdeps",
+    "diagnostics": "/Users/luna/Documents/workspace/excalidraw/excalidraw-luna/scripts/native/FixtureGen/.build/arm64-apple-macosx/debug/fixturegen.build/main.dia"
+  }
+}

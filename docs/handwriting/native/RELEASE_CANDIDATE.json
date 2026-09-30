@@ -1,0 +1,11 @@
+{
+  "builtAt": "2026-09-30T00:02:08Z",
+  "xcode": "Xcode 27.0",
+  "sdk": "27.0",
+  "artifacts": {
+    "webBuildHash": "38e1c1be915c44afd3000b4271b93919a9cceb5b0e1d3a89f0b8b379a2eb2e90",
+    "fixtureHash": "db13c0f16ca7bf4bec4e30150850679a84f1b5805da66c664c37e83dff6212dc",
+    "xcodegenHash": "8774da746668bc18fe74e54cbaf10f2631a1fb05947cd374179aa912f14f99db"
+  },
+  "signing": "none (simulator); device signing left to the user"
+}
