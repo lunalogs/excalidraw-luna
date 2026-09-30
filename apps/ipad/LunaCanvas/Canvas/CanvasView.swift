@@ -7,8 +7,8 @@ import UIKit
 
 final class CanvasController: NSObject, ObservableObject {
     /// Stable document identity across saves of the same document (W02):
-    /// assigned once per document, never per save.
-    let documentId = UUID()
+    /// assigned per document; a NEW document gets a fresh id.
+    private(set) var documentId = UUID()
     @Published private(set) var revision = 0
     /// Stable identity per selectable ink unit, owned by the adapter layer
     /// (ADR-0002) — never derived from array index or PKStroke internals.
@@ -312,7 +312,16 @@ final class CanvasController: NSObject, ObservableObject {
     /// geometry fingerprints never reassign ids across sessions. Stored
     /// transforms are applied to the canvas once and normalized, so a later
     /// save never scales twice (SPEC 3.2).
-    func load(from imported: [ImportedInkUnit], canvas: PKCanvasView) {
+    func load(
+        from imported: [ImportedInkUnit],
+        canvas: PKCanvasView,
+        documentId: String? = nil,
+        revision: Int = 0,
+    ) {
+        if let documentId, let uuid = UUID(uuidString: documentId) {
+            self.documentId = uuid
+        }
+        self.revision = revision
         let strokes: [PKStroke] = imported.map { unit in
             let stroke = unit.drawing.strokes.first!
             guard
@@ -350,6 +359,15 @@ final class CanvasController: NSObject, ObservableObject {
 
     func attach(canvas: PKCanvasView) {
         liveCanvas = canvas
+    }
+
+    /// Starts a NEW document: fresh identity, empty canvas and units.
+    func resetForNewDocument(canvas: PKCanvasView) {
+        canvas.drawing = PKDrawing()
+        units = []
+        lastSnapshot = nil
+        revision = 0
+        documentId = UUID()
     }
 
     private func updateUnitsFromLiveCanvasIfPossible() {
