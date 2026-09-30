@@ -1,0 +1,22 @@
+import { isInkSelectedByLasso, parseInkObject, serializeInkObject, type InkObject } from '../lunacanvas/inkModel';
+import { InkEditingController } from '../lunacanvas/inkEditing';
+const ink = (): InkObject => ({ objectId: 'i', transform: [1,0,0,1,0,0], order: 0, contentHash: 'a'.repeat(64), contentVersion: 1, previewUrl: null, deleted: false, hit: { bounds: [0,0,100,10], width: 6, path: [[0,5],[100,5]], hasMask: true, maskBounds: [40,0,20,10] } });
+it('lasso wholly inside declared erased hole must not select', () => {
+  expect(isInkSelectedByLasso(ink(), [[45,3],[55,3],[55,7],[45,7]])).toBe(false);
+});
+it('import/export preserves legal resource references', () => {
+  const entry = {objectId: 'i', nativeAssetRef: 'ink/asset-v2.drawing', previewRef: 'previews/asset-v2.png', hitGeometryRef: 'hit/asset-v2.json', worldTransform: [1,0,0,1,0,0] as const, order:0, contentHash:'a'.repeat(64), contentVersion:2};
+  const restored = serializeInkObject(parseInkObject(entry, ink().hit, null));
+  expect(restored.nativeAssetRef).toBe(entry.nativeAssetRef);
+  expect(restored.previewRef).toBe(entry.previewRef);
+});
+it('undo after ink then graphics must undo most recent graphics first', () => {
+  const graphicsUndo = vi.fn();
+  const editor = new InkEditingController([ink()], graphicsUndo);
+  editor.moveSelection(new Set(['i']), 10, 0);
+  // Host now adds a rectangle to its graphics history. Controller exposes
+  // no registration API/marker for this edit; undo routes by ink-stack depth.
+  editor.undo();
+  expect(graphicsUndo).toHaveBeenCalledTimes(1);
+  expect(editor.getObjects()[0].transform[4]).toBe(10);
+});

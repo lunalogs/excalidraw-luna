@@ -44,6 +44,16 @@ export interface InkObject {
   /** identity replacement graph (ADR-0002) */
   splitFrom?: string;
   replacedBy?: string;
+  /**
+   * Container refs carried VERBATIM from the manifest and written back on
+   * save (0045-R2). A legal document may name its resources anything (e.g.
+   * `ink/asset-v2-x.drawing`); re-deriving paths from objectId would point
+   * at non-existent entries. Undefined = not bound to a container (tests);
+   * serialize then falls back to the objectId-derived path.
+   */
+  assetRef?: string;
+  previewRef?: string | null;
+  hitRef?: string | null;
 }
 
 const TRANSFORM_EPSILON = 1e-9;
@@ -166,11 +176,110 @@ const pointInPolygon = (
 const worldHalfWidth = (ink: InkObject): number =>
   (ink.hit.width * ink.transform[0]) / 2;
 
+/** Is this WORLD point inside the local-erase hole? */
+const worldHoleRect = (
+  ink: InkObject,
+): [[number, number], [number, number]] | null => {
+  if (!ink.hit.hasMask || !ink.hit.maskBounds) {
+    return null;
+  }
+  const [mx, my, mw, mh] = ink.hit.maskBounds;
+  const [wx, wy] = transformPoint(ink.transform, [mx, my]);
+  return [
+    [wx, wy],
+    [wx + mw * ink.transform[0], wy + mh * ink.transform[3]],
+  ];
+};
+
+/**
+ * Subtract an axis-aligned world rect from a segment: returns the
+ * sub-segments OUTSIDE the rect (0, 1 or 2). Used to remove the
+ * local-erase hole from capsule geometry. Touches (enter === exit)
+ * keep the segment — the boundary still carries visible ink.
+ */
+const subtractRectFromSegment = (
+  a: [number, number],
+  b: [number, number],
+  min: [number, number],
+  max: [number, number],
+): Segment[] => {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) {
+    return pointInWorldHolePoint(a, min, max) ? [] : [[a, b]];
+  }
+  let tEnter = 0;
+  let tExit = 1;
+  const slabs: [number, number, number][] = [
+    [a[0], dx, 0],
+    [a[1], dy, 1],
+  ];
+  for (const [start, delta, axis] of slabs) {
+    const lo = min[axis];
+    const hi = max[axis];
+    if (Math.abs(delta) < 1e-12) {
+      if (start < lo || start > hi) {
+        return [[a, b]]; // parallel and outside the slab: never inside
+      }
+      continue;
+    }
+    let t1 = (lo - start) / delta;
+    let t2 = (hi - start) / delta;
+    if (t1 > t2) {
+      [t1, t2] = [t2, t1];
+    }
+    tEnter = Math.max(tEnter, t1);
+    tExit = Math.min(tExit, t2);
+    if (tEnter > tExit) {
+      return [[a, b]]; // no overlap with the rect interior
+    }
+  }
+  if (tEnter >= tExit) {
+    return [[a, b]];
+  }
+  const at = (t: number): [number, number] => [a[0] + dx * t, a[1] + dy * t];
+  const parts: Segment[] = [];
+  if (tEnter > 1e-9) {
+    parts.push([a, at(tEnter)]);
+  }
+  if (tExit < 1 - 1e-9) {
+    parts.push([at(tExit), b]);
+  }
+  return parts;
+};
+
+const pointInWorldHolePoint = (
+  p: [number, number],
+  min: [number, number],
+  max: [number, number],
+): boolean =>
+  p[0] >= min[0] && p[0] <= max[0] && p[1] >= min[1] && p[1] <= max[1];
+
+/**
+ * The VISIBLE portions of the stroke's centerline: the local-erase hole
+ * is subtracted segment by segment (the geometry path only knows the
+ * hole's bounds — PencilKit does not expose the mask polygon). Capsule
+ * tests over these clipped segments give the correct semantics: a point
+ * inside the hole only hits when the disc overlaps surviving ink at the
+ * hole boundary. Residual error along the hole edge is resolved precisely
+ * by the preview-alpha sampler in InkLayer (0046-R4).
+ */
+const visibleSegments = (ink: InkObject): Segment[] => {
+  const hole = worldHoleRect(ink);
+  const segments = worldSegments(ink);
+  if (!hole) {
+    return segments;
+  }
+  return segments.flatMap(([a, b]) =>
+    subtractRectFromSegment(a, b, hole[0], hole[1]),
+  );
+};
+
 /**
  * Eraser hit (N15): does the eraser disc at `point` with radius `radius`
- * touch this ink's visible stroke? Hole-safe: when the point falls inside
- * the mask bounds (a local-erase hole region), the stroke is NOT hit
- * unless the disc also overlaps the surviving capsules.
+ * touch this ink's VISIBLE stroke? Segments inside the local-erase hole
+ * are invisible and never hit; a point inside the hole only erases when
+ * the disc also overlaps surviving (outside-hole) capsules.
  */
 export const isInkHitByEraser = (
   ink: InkObject,
@@ -181,20 +290,7 @@ export const isInkHitByEraser = (
     return false;
   }
   const halfWidth = worldHalfWidth(ink);
-  // points inside the mask bounds alone do not count as a hit
-  if (ink.hit.hasMask && ink.hit.maskBounds) {
-    const [mx, my, mw, mh] = ink.hit.maskBounds;
-    const [wx, wy] = transformPoint(ink.transform, [mx, my]);
-    const insideHole =
-      point[0] >= wx &&
-      point[0] <= wx + mw * ink.transform[0] &&
-      point[1] >= wy &&
-      point[1] <= wy + mh * ink.transform[3];
-    if (insideHole) {
-      return false;
-    }
-  }
-  return worldSegments(ink).some(
+  return visibleSegments(ink).some(
     (segment) => distToSegment(point, segment) <= halfWidth + radius,
   );
 };
@@ -211,7 +307,12 @@ export const isInkSelectedByLasso = (
   if (ink.deleted || polygon.length < 3) {
     return false;
   }
-  const segments = worldSegments(ink);
+  // only VISIBLE segments participate: a lasso drawn inside a
+  // local-erase hole selects nothing (0046-R4)
+  const segments = visibleSegments(ink);
+  if (segments.length === 0) {
+    return false;
+  }
   const halfWidth = worldHalfWidth(ink);
   for (const segment of segments) {
     for (let i = 0; i < polygon.length; i++) {
@@ -269,27 +370,42 @@ export const parseInkObject = (
   deleted: false,
   splitFrom: entry.splitFrom,
   replacedBy: entry.replacedBy,
+  // refs are owned by the container, not by objectId naming rules —
+  // preserve them verbatim so an unmodified object re-exports identically
+  assetRef: entry.nativeAssetRef,
+  previewRef: entry.previewRef ?? null,
+  hitRef: entry.hitGeometryRef ?? null,
 });
 
-export const serializeInkObject = (ink: InkObject): ManifestInkObject => ({
-  objectId: ink.objectId,
-  nativeAssetRef: `ink/${ink.objectId}.drawing`,
-  previewRef: `previews/${ink.objectId}.png`,
-  hitGeometryRef: `hit/${ink.objectId}.json`,
-  worldTransform: [
-    ink.transform[0],
-    ink.transform[1],
-    ink.transform[2],
-    ink.transform[3],
-    ink.transform[4],
-    ink.transform[5],
-  ],
-  order: ink.order,
-  contentVersion: ink.contentVersion,
-  contentHash: ink.contentHash,
-  splitFrom: ink.splitFrom,
-  replacedBy: ink.replacedBy,
-});
+export const serializeInkObject = (ink: InkObject): ManifestInkObject => {
+  // null = explicitly no such resource (omit); undefined = unbound
+  // (legacy fallback to the objectId-derived path)
+  const previewRef =
+    ink.previewRef === undefined
+      ? `previews/${ink.objectId}.png`
+      : ink.previewRef;
+  const hitRef =
+    ink.hitRef === undefined ? `hit/${ink.objectId}.json` : ink.hitRef;
+  return {
+    objectId: ink.objectId,
+    nativeAssetRef: ink.assetRef ?? `ink/${ink.objectId}.drawing`,
+    ...(previewRef ? { previewRef } : {}),
+    ...(hitRef ? { hitGeometryRef: hitRef } : {}),
+    worldTransform: [
+      ink.transform[0],
+      ink.transform[1],
+      ink.transform[2],
+      ink.transform[3],
+      ink.transform[4],
+      ink.transform[5],
+    ],
+    order: ink.order,
+    contentVersion: ink.contentVersion,
+    contentHash: ink.contentHash,
+    splitFrom: ink.splitFrom,
+    replacedBy: ink.replacedBy,
+  };
+};
 
 /** schemaVersion marker re-exported so bundlers tree-shake consistently */
 export const INK_MODEL_SCHEMA_VERSION = HANDWRITING_SCHEMA_VERSION;

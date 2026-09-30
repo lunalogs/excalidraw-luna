@@ -38,6 +38,43 @@ export interface ContainerValidationResult {
   errors: string[];
 }
 
+/** Raised by readEntry implementations when the DECOMPRESSED bytes would
+ * exceed the container budgets — metadata-only validation cannot see
+ * these, so the read path enforces them for real (0048-R6). */
+export class ContainerBudgetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ContainerBudgetError";
+  }
+}
+
+export interface ValidateContainerOptions {
+  /**
+   * SHA-256 hex digest of bytes. Defaults to Web Crypto (`crypto.subtle`)
+   * in browsers with a guarded Node fallback — `node:crypto` is never a
+   * hard import in browser bundles (0048-R6).
+   */
+  hashBytes?: (bytes: Uint8Array) => Promise<string>;
+}
+
+const toHex = (bytes: Uint8Array): string =>
+  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+
+const defaultHashBytes = async (bytes: Uint8Array): Promise<string> => {
+  const subtle = (globalThis as { crypto?: { subtle?: SubtleCrypto } }).crypto
+    ?.subtle;
+  if (subtle) {
+    const digest = await subtle.digest("SHA-256", bytes as BufferSource);
+    return toHex(new Uint8Array(digest));
+  }
+  // Node fallback (tests, CLI): guarded so browser bundles never reach it
+  const nodeCrypto = await import("node:crypto");
+  return nodeCrypto.createHash("sha256").update(bytes).digest("hex");
+};
+
+/** exported for adapter/tests that need the same default digest */
+export { defaultHashBytes };
+
 /** Normalized container-relative path rules, shared by TS and Swift. */
 export const isSafeContainerPath = (path: unknown): path is string => {
   if (typeof path !== "string" || path.length === 0) {
@@ -112,6 +149,7 @@ export const validateContainerMetadata = (
  */
 export const validateContainer = async (
   source: ContainerEntrySource,
+  options: ValidateContainerOptions = {},
 ): Promise<ContainerValidationResult & { manifest?: unknown }> => {
   const meta = validateContainerMetadata(source.entries);
   if (!meta.ok) {
@@ -145,22 +183,30 @@ export const validateContainer = async (
   }
   const manifest = manifestResult.manifest!;
 
-  // resource byte/hash consistency (bounded by metadata budgets above)
+  // resource byte/hash consistency (bounded by metadata budgets above).
+  // The hash implementation is INJECTABLE: browsers use Web Crypto, tests
+  // may pass a node:crypto-backed function — the validator never hard-
+  // depends on Node built-ins (0048-R6).
   const errors: string[] = [];
-  const cryptoImpl = await import("crypto");
+  const hashBytes =
+    options.hashBytes ?? ((bytes: Uint8Array) => defaultHashBytes(bytes));
   for (const resource of manifest.resources) {
     let bytes: Uint8Array;
     try {
       bytes = await source.readEntry(resource.path);
-    } catch {
-      errors.push(`resource unreadable: ${resource.path}`);
+    } catch (error) {
+      errors.push(
+        error instanceof ContainerBudgetError
+          ? `resource exceeds read budget: ${resource.path}`
+          : `resource unreadable: ${resource.path}`,
+      );
       continue;
     }
     if (bytes.byteLength !== resource.byteSize) {
       errors.push(`resource size mismatch: ${resource.path}`);
       continue;
     }
-    const actual = cryptoImpl.createHash("sha256").update(bytes).digest("hex");
+    const actual = await hashBytes(bytes);
     if (actual !== resource.sha256.toLowerCase()) {
       errors.push(`resource hash mismatch: ${resource.path}`);
     }

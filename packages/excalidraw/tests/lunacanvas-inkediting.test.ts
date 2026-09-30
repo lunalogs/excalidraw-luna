@@ -138,11 +138,12 @@ describe("InkEditingController (W06)", () => {
     expect(controller.getObjects()[0].deleted).toBe(false);
   });
 
-  it("undo delegates to the host graphics stack when ink history is empty (N17 facade)", () => {
+  it("graphics commands share the ONE ordered stack (0047-R5)", () => {
     let graphicsUndos = 0;
     let graphicsRedos = 0;
-    const controller = new InkEditingController(
-      [],
+    const controller = new InkEditingController([]);
+    controller.recordGraphics(
+      "add-rect",
       () => graphicsUndos++,
       () => graphicsRedos++,
     );
@@ -150,6 +151,10 @@ describe("InkEditingController (W06)", () => {
     expect(graphicsUndos).toBe(1);
     expect(controller.redo()).toEqual({ kind: "graphics" });
     expect(graphicsRedos).toBe(1);
+    // the redone entry is undoable again; then the stack is empty
+    expect(controller.undo()).toEqual({ kind: "graphics" });
+    expect(graphicsUndos).toBe(2);
+    expect(controller.undo()).toEqual({ kind: "empty" });
   });
 
   it("cancel/rollback: reset drops in-flight state and history (N17)", () => {

@@ -1,13 +1,14 @@
 /**
- * Hybrid editing controller + unified history (W06, N14/N15/N17).
+ * Hybrid editing controller + unified history (W06, 0047-R5; N14/N15/N17).
  *
  * Model-level operations: lasso selection, move/scale around a fixed
  * anchor, whole-stroke eraser sweeps (one history entry per sweep),
- * multi-object delete, undo/redo across ink commands — interleaved with
- * graphics markers so the host can route graphics undo to its own stack
- * through ONE facade entry (SPEC N17).
+ * multi-object delete. ALL commands — ink AND graphics — live in ONE
+ * ordered DocumentHistory (SPEC N17): undo walks reverse chronological
+ * order across subsystems, never "ink stack first, graphics when empty".
  */
 
+import { DocumentHistory } from "./documentHistory";
 import {
   applyInkEdit,
   isInkHitByEraser,
@@ -16,16 +17,6 @@ import {
   type InkObject,
   type WorldTransform,
 } from "./inkModel";
-
-export interface InkCommand {
-  label: string;
-  /** inverse edits, applied in order on undo (delete sweeps use hitIds) */
-  undo: InkEdit[];
-  /** forward edits, applied in order on redo */
-  redo: InkEdit[];
-  /** eraser-sweep marker: the set of ids whose deleted flag flips */
-  hitIds?: Set<string>;
-}
 
 const moveTransform = (
   t: WorldTransform,
@@ -72,22 +63,42 @@ const applyAll = (
 };
 
 export class InkEditingController {
-  private undoStack: InkCommand[] = [];
-  private redoStack: InkCommand[] = [];
+  private objects: InkObject[];
 
   constructor(
-    private objects: InkObject[],
-    /** graphics-state undo/redo owned by the host (excalidraw) */
-    private graphicsUndo: () => void = () => {},
-    private graphicsRedo: () => void = () => {},
-  ) {}
+    objects: InkObject[],
+    /**
+     * THE document history (shared with the graphics host). Pass the
+     * host's coordinator so ink and graphics commands interleave in one
+     * ordered stack; a private one is created for standalone use/tests.
+     */
+    private history: DocumentHistory = new DocumentHistory(),
+    /** called after any state change (commit/undo/redo) for host sync */
+    private onChanged: (
+      objects: readonly InkObject[],
+      cause: "commit" | "undo" | "redo",
+    ) => void = () => {},
+  ) {
+    this.objects = objects;
+  }
+
+  /** the shared coordinator — the graphics host records its commands here */
+  getHistory(): DocumentHistory {
+    return this.history;
+  }
 
   getObjects(): readonly InkObject[] {
     return this.objects;
   }
 
   getHistoryDepth(): { undo: number; redo: number } {
-    return { undo: this.undoStack.length, redo: this.redoStack.length };
+    return this.history.depth();
+  }
+
+  /** Graphics commands enter the SAME ordered stack through this entry
+   * point (one user action = one entry; N17). */
+  recordGraphics(label: string, undo: () => void, redo: () => void): void {
+    this.history.push({ kind: "graphics", label, undo, redo });
   }
 
   /**
@@ -107,7 +118,6 @@ export class InkEditingController {
     dy: number,
   ): ControllerResult {
     const edits: InkEdit[] = [];
-    const undo: InkEdit[] = [];
     for (const ink of this.objects) {
       if (!ids.has(ink.objectId) || ink.deleted) {
         continue;
@@ -117,13 +127,12 @@ export class InkEditingController {
         objectId: ink.objectId,
         transform: moveTransform(ink.transform, dx, dy),
       });
-      undo.push({
-        kind: "set-transform",
-        objectId: ink.objectId,
-        transform: ink.transform,
-      });
     }
-    return this.commit({ label: "move-ink", undo, redo: edits });
+    const result = applyAll(this.objects, edits);
+    if (!result.ok) {
+      return result;
+    }
+    return this.commit("move-ink", result.objects);
   }
 
   /** Uniform scale around a fixed world anchor (N14). One history entry. */
@@ -136,7 +145,6 @@ export class InkEditingController {
       return { ok: false, error: "factor must be positive and finite" };
     }
     const edits: InkEdit[] = [];
-    const undo: InkEdit[] = [];
     for (const ink of this.objects) {
       if (!ids.has(ink.objectId) || ink.deleted) {
         continue;
@@ -146,13 +154,12 @@ export class InkEditingController {
         objectId: ink.objectId,
         transform: scaleTransform(ink.transform, factor, anchor),
       });
-      undo.push({
-        kind: "set-transform",
-        objectId: ink.objectId,
-        transform: ink.transform,
-      });
     }
-    return this.commit({ label: "scale-ink", undo, redo: edits });
+    const result = applyAll(this.objects, edits);
+    if (!result.ok) {
+      return result;
+    }
+    return this.commit("scale-ink", result.objects);
   }
 
   /**
@@ -175,81 +182,54 @@ export class InkEditingController {
     const next = this.objects.map((ink) =>
       hitIds.has(ink.objectId) ? { ...ink, deleted: true } : ink,
     );
-    this.objects = next;
-    // the command carries the hit set; undo/redo flip deleted directly so
-    // object ids, order and content hashes are never touched
-    const command: InkCommand & { hitIds: Set<string> } = {
-      label: "erase-ink",
-      undo: [],
-      redo: [],
-      hitIds,
-    };
-    this.undoStack.push(command);
-    this.redoStack = [];
-    return { ok: true, objects: this.objects };
+    return this.commit("erase-ink", next);
   }
 
-  private commit(command: InkCommand): ControllerResult {
-    const result = applyAll(this.objects, command.redo);
-    if (!result.ok) {
-      return result;
-    }
-    this.objects = result.objects;
-    this.undoStack.push(command);
-    this.redoStack = [];
+  /**
+   * One user action = one history entry: the entry captures the whole
+   * before/after object lists (they are immutable copies), so undo/redo
+   * restore state exactly — object ids, order and content hashes are
+   * never touched by history traversal.
+   */
+  private commit(label: string, next: InkObject[]): ControllerResult {
+    const before = this.objects;
+    const after = next;
+    this.objects = after;
+    this.history.push({
+      kind: "ink",
+      label,
+      undo: () => {
+        this.objects = before;
+        this.onChanged(this.objects, "undo");
+      },
+      redo: () => {
+        this.objects = after;
+        this.onChanged(this.objects, "redo");
+      },
+    });
+    this.onChanged(this.objects, "commit");
     return { ok: true, objects: this.objects };
   }
 
   /**
-   * Unified undo/redo (N17): ink commands reverse through this controller;
-   * a graphics marker means "delegate to the host graphics history".
-   * Returns what happened so the host can update selection/UI.
+   * Unified undo/redo (N17): delegates to THE document coordinator, so
+   * graphics commands recorded between ink commands undo in the order
+   * they happened. Returns what happened so the host can update UI.
    */
   undo(): { kind: "ink" | "graphics" | "empty" } {
-    const command = this.undoStack.pop();
-    if (!command) {
-      this.graphicsUndo();
-      return { kind: "graphics" };
-    }
-    if (command.hitIds) {
-      this.objects = this.objects.map((ink) =>
-        command.hitIds!.has(ink.objectId) ? { ...ink, deleted: false } : ink,
-      );
-    } else {
-      const result = applyAll(this.objects, [...command.undo].reverse());
-      if (result.ok) {
-        this.objects = result.objects;
-      }
-    }
-    this.redoStack.push(command);
-    return { kind: "ink" };
+    const entry = this.history.undo();
+    return { kind: entry?.kind ?? "empty" };
   }
 
   redo(): { kind: "ink" | "graphics" | "empty" } {
-    const command = this.redoStack.pop();
-    if (!command) {
-      this.graphicsRedo();
-      return { kind: "graphics" };
-    }
-    if (command.hitIds) {
-      this.objects = this.objects.map((ink) =>
-        command.hitIds!.has(ink.objectId) ? { ...ink, deleted: true } : ink,
-      );
-    } else {
-      const result = applyAll(this.objects, command.redo);
-      if (result.ok) {
-        this.objects = result.objects;
-      }
-    }
-    this.undoStack.push(command);
-    return { kind: "ink" };
+    const entry = this.history.redo();
+    return { kind: entry?.kind ?? "empty" };
   }
 
-  /** Cancel/rollback helper: current in-flight transaction aborts without
-   * touching history (host drops pending pointer state). */
+  /** Cancel/rollback helper: a new document state replaces everything,
+   * including history (host drops pending pointer state). */
   reset(objects: InkObject[]): void {
     this.objects = objects;
-    this.undoStack = [];
-    this.redoStack = [];
+    this.history.clear();
   }
 }

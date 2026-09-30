@@ -42,6 +42,7 @@ enum CompatImporter {
             sceneData: sceneData,
             units: [],
             manifestExtras: [:],
+            preservedEntries: [],
         )
     }
 }

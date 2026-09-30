@@ -31,7 +31,7 @@ final class NativeInkHistoryTests: XCTestCase {
         history.beginTransaction(label: "write", units: []) // pre-write
         controller.updateUnits(from: canvas)
         history.commit(label: "write", units: controller.units)
-        XCTAssertEqual(history.undoStack.count, 1)
+        XCTAssertEqual(history.coordinator.undoStack.count, 1)
         XCTAssertEqual(history.emittedPayloads.last?.count, 3)
 
         // erase the middle stroke (transaction)
@@ -74,7 +74,7 @@ final class NativeInkHistoryTests: XCTestCase {
         history.cancel(units: &units)
 
         XCTAssertEqual(units.count, 1, "cancel restores the snapshot")
-        XCTAssertEqual(history.undoStack.count, 0)
+        XCTAssertEqual(history.coordinator.undoStack.count, 0)
         XCTAssertEqual(history.emittedPayloads.count, 0)
         XCTAssertFalse(history.hasOpenTransaction)
     }
@@ -117,5 +117,46 @@ final class NativeInkHistoryTests: XCTestCase {
         XCTAssertTrue(history.redo(units: &units))
         XCTAssertEqual(units.count, 1)
         XCTAssertFalse(history.redo(units: &units))
+    }
+
+    /// 0047-R5: ink and graphics commands share ONE ordered stack — undo
+    /// walks reverse chronological order across subsystems.
+    func testInterleavedInkAndGraphicsUndoInExactReverseOrder() {
+        let canvas = PKCanvasView()
+        canvas.drawing = PKDrawing(strokes: [makeStroke(x: 0)])
+        let controller = CanvasController()
+
+        let history = NativeInkHistory()
+        history.beginTransaction(label: "write", units: [])
+        controller.updateUnits(from: canvas)
+        history.commit(label: "write", units: controller.units)
+
+        // a graphics command (e.g. web-side rect add) enters the SAME stack
+        var graphicsEvents: [String] = []
+        history.coordinator.record(
+            DocumentHistoryEntry(
+                kind: .graphics,
+                label: "add-rect",
+                undo: { graphicsEvents.append("undo-graphics") },
+                redo: { graphicsEvents.append("redo-graphics") }
+            )
+        )
+
+        // first undo = the GRAPHICS command (most recent), ink untouched
+        var units = controller.units
+        XCTAssertTrue(history.undo(units: &units))
+        XCTAssertEqual(graphicsEvents, ["undo-graphics"])
+        XCTAssertEqual(units.count, 1, "ink write still applied")
+
+        // second undo = the ink write
+        XCTAssertTrue(history.undo(units: &units))
+        XCTAssertEqual(units.count, 0)
+
+        // redo mirrors the order
+        XCTAssertTrue(history.redo(units: &units))
+        XCTAssertEqual(units.count, 1)
+        XCTAssertTrue(history.redo(units: &units))
+        XCTAssertEqual(graphicsEvents, ["undo-graphics", "redo-graphics"])
+        XCTAssertFalse(history.redo(units: &units), "redo stack exhausted")
     }
 }

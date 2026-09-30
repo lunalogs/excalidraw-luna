@@ -75,24 +75,29 @@ enum DocumentFileStore {
 
     /// Atomic save: LunaArchive.export already writes temp-then-replace;
     /// here we add security-scope handling and never report success before
-    /// the replace returns.
+    /// the replace returns. `scene` must be the document's REAL scene —
+    /// passing nil writes an empty scene and drops graphics (0045-R2).
     static func saveDocument(
         units: [CanvasController.InkUnit],
         to url: URL,
         documentId: String,
         revision: Int,
         manifestExtras: [String: Any] = [:],
+        scene: Data? = nil,
+        preservedEntries: [(path: String, data: Data)] = [],
     ) throws {
         let accessing = url.startAccessingSecurityScopedResource()
         defer {
             if accessing { url.stopAccessingSecurityScopedResource() }
         }
-        try DocumentExporter.export(
+        _ = try DocumentExporter.export(
             units: units,
             to: url,
             documentId: documentId,
             revision: revision,
             manifestExtras: manifestExtras,
+            scene: scene,
+            preservedEntries: preservedEntries,
         )
     }
 

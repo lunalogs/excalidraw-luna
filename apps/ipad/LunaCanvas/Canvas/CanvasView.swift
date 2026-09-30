@@ -28,6 +28,49 @@ final class CanvasController: NSObject, ObservableObject {
         /// saving never pays the render cost on the critical path (W12).
         var previewData: Data? = nil
         var hitData: Data? = nil
+        /// EXACT content proof (0045-R3): sha256 of the serialized
+        /// single-stroke drawing. Covers path, pressure, ink type and mask
+        /// — a geometric summary (bounds/count/RGBA) is NOT proof of
+        /// content equality and must never gate identity.
+        let contentDigest: String
+        /// Set on a NEW unit when its content replaces a previous unit's
+        /// content (modify/split) — the manifest splitFrom edge (N16).
+        let replacedObjectId: UUID?
+
+        /// Kept unit: identity, pristine bytes and derived resources carry
+        /// over; the drawing reference is refreshed to the live stroke.
+        static func kept(_ unit: InkUnit, drawing: PKDrawing) -> InkUnit {
+            InkUnit(
+                objectId: unit.objectId,
+                drawing: drawing,
+                transform: unit.transform,
+                originalData: unit.originalData,
+                previewData: unit.previewData,
+                hitData: unit.hitData,
+                contentDigest: unit.contentDigest,
+                replacedObjectId: unit.replacedObjectId,
+            )
+        }
+
+        /// New unit: fresh identity + derived resources, optionally linked
+        /// to the replaced unit via the identity graph. The stroke is
+        /// pristine at creation, so its initial serialization is kept as
+        /// the re-export payload until an actual edit occurs (N08).
+        static func fresh(
+            drawing: PKDrawing,
+            replacedObjectId: UUID? = nil,
+        ) -> InkUnit {
+            InkUnit(
+                objectId: UUID(),
+                drawing: drawing,
+                transform: .identity,
+                originalData: drawing.dataRepresentation(),
+                previewData: DocumentExporter.makePreviewData(for: drawing),
+                hitData: DocumentExporter.makeHitData(for: drawing),
+                contentDigest: CanvasController.contentDigest(of: drawing),
+                replacedObjectId: replacedObjectId,
+            )
+        }
     }
 
     @Published private(set) var units: [InkUnit] = []
@@ -35,82 +78,139 @@ final class CanvasController: NSObject, ObservableObject {
     private var lastSnapshot: PKDrawing?
 
     /// Rebuilds the unit list from the live canvas. Unchanged units keep
-    /// their objectId; modified/split strokes get new ids (ADR-0002).
+    /// their objectId AND pristine bytes; modified/split strokes get new
+    /// ids linked to the replaced unit (ADR-0002, 0045-R3).
     ///
-    /// P0 mapping (improved per 0027-R1): fingerprints cover bounds, point
-    /// count, ink color and width so same-bounds-different-content strokes
-    /// are distinguishable; matching is ORDER-BASED ONE-TO-ONE with
-    /// consumption — each previous unit matches at most one current stroke,
-    /// so identical/coincident strokes never collapse onto one id. P1
-    /// replaces fingerprints with a persistent identity map.
+    /// Identity is proven by `contentDigest` — a sha256 over every visible
+    /// stroke property (path, pressure, ink, mask), not a geometric
+    /// summary and not serialized bytes (unstable metadata). Matching
+    /// is one-to-one with consumption, then unmatched new strokes pair with
+    /// unmatched old units IN DOCUMENT ORDER inside the spans between
+    /// matched anchors (an LCS-style diff — PencilKit exposes no per-stroke
+    /// mutation events, so positional pairing inside unmatched spans is the
+    /// strongest available attribution; extras in a 1→m span share the
+    /// parent, which is exactly the split relation).
     func updateUnits(from canvas: PKCanvasView) {
         let drawing = canvas.drawing
-        // steady-state fast path: same stroke count means index-aligned
-        // identity (canvas edits preserve order); O(n) instead of the
-        // fingerprint pool match below.
-        if drawing.strokes.count == units.count,
-           zip(units, drawing.strokes).allSatisfy({ unit, stroke in
-               Self.fingerprint(of: unit.drawing)
-                   == Self.fingerprint(of: PKDrawing(strokes: [stroke]))
-           }) {
-            // unchanged content: keep identity and derived resources as-is
+        let strokes = drawing.strokes
+        let digests = strokes.map {
+            Self.contentDigest(of: PKDrawing(strokes: [$0]))
+        }
+        // steady-state fast path: same stroke count and every index-aligned
+        // digest equal means NOTHING changed — O(n) exact proof.
+        if strokes.count == units.count,
+           zip(units, digests).allSatisfy({ $0.contentDigest == $1 }) {
             lastSnapshot = drawing
             return
         }
-        var pool = units
-        var next: [InkUnit] = []
-        for stroke in drawing.strokes {
-            let single = PKDrawing(strokes: [stroke])
-            let fingerprint = Self.fingerprint(of: single)
-            var matchIndex: Int?
-            for (index, candidate) in pool.enumerated() where
-                Self.fingerprint(of: candidate.drawing) == fingerprint
-            {
-                matchIndex = index
+        // pass 1: exact one-to-one digest matching with consumption
+        var pool: [Int] = Array(units.indices)
+        var match: [Int?] = []
+        match.reserveCapacity(strokes.count)
+        for digest in digests {
+            var found: Int?
+            for index in pool where units[index].contentDigest == digest {
+                found = index
                 break
             }
-            if let index = matchIndex {
-                let kept = pool.remove(at: index)
-                next.append(
-                    InkUnit(
-                        objectId: kept.objectId,
-                        drawing: single,
-                        transform: kept.transform,
-                        originalData: kept.originalData,
-                        previewData: kept.previewData,
-                        hitData: kept.hitData,
-                    )
-                )
+            if let index = found {
+                match.append(index)
+                pool.removeAll { $0 == index }
             } else {
-                // new or modified stroke: fresh identity + derived resources
+                match.append(nil)
+            }
+        }
+        // pass 2: rebuild, pairing unmatched new strokes with unmatched old
+        // units in document order within each span between matched anchors.
+        var next: [InkUnit] = []
+        next.reserveCapacity(strokes.count)
+        var cursor = 0
+        while cursor < strokes.count {
+            if let oldIndex = match[cursor] {
                 next.append(
-                    InkUnit(
-                        objectId: UUID(),
-                        drawing: single,
-                        transform: .identity,
-                        originalData: nil,
-                        previewData: DocumentExporter.makePreviewData(for: single),
-                        hitData: DocumentExporter.makeHitData(for: single),
+                    .kept(units[oldIndex], drawing: PKDrawing(strokes: [strokes[cursor]]))
+                )
+                cursor += 1
+                continue
+            }
+            var end = cursor
+            while end < strokes.count && match[end] == nil { end += 1 }
+            let leftAnchor = cursor > 0 ? match[cursor - 1]! : -1
+            let rightAnchor = end < strokes.count ? match[end]! : units.count
+            // unmatched old units strictly inside the anchor span, in order
+            let spanCandidates = pool
+                .filter { $0 > leftAnchor && $0 < rightAnchor }
+                .sorted()
+                .map { units[$0] }
+            for (offset, newIndex) in (cursor..<end).enumerated() {
+                let parent: UUID?
+                if spanCandidates.isEmpty {
+                    parent = nil // pure insertion: no replaced content
+                } else {
+                    // in-order pairing; 1→m spans share the parent (split)
+                    parent = spanCandidates[min(offset, spanCandidates.count - 1)]
+                        .objectId
+                }
+                next.append(
+                    .fresh(
+                        drawing: PKDrawing(strokes: [strokes[newIndex]]),
+                        replacedObjectId: parent,
                     )
                 )
             }
+            cursor = end
         }
         units = next
         lastSnapshot = drawing
     }
 
-    /// P0 content fingerprint — richer than bounds+count (0027-R1) but
-    /// still NOT a permanent identity; P1 replaces it (ADR-0002).
-    static func fingerprint(of drawing: PKDrawing) -> String {
-        let b = drawing.bounds
-        let stroke = drawing.strokes.first
-        let (r, g, bl, a) = stroke?.ink.color.rgba ?? (0, 0, 0, 0)
-        return String(
-            format: "%.2f,%.2f,%.2f,%.2f,%d,%.3f,%.3f,%.3f,%.3f",
-            b.origin.x, b.origin.y, b.size.width, b.size.height,
-            stroke?.path.count ?? 0,
-            r, g, bl, a
-        )
+    /// Exact content digest (0045-R3): sha256 over a canonical binary
+    /// encoding of every visible stroke property. Equal digests prove
+    /// equal content (path, pressure, ink, mask); unequal digests prove a
+    /// real edit. Never derived from serialized bytes (unstable metadata)
+    /// or geometry summaries (blind to pressure edits).
+    static func contentDigest(of drawing: PKDrawing) -> String {
+        var data = Data()
+        func append(_ value: Double) {
+            var bits = value.bitPattern
+            withUnsafeBytes(of: &bits) { data.append(contentsOf: $0) }
+        }
+        for stroke in drawing.strokes {
+            data.append(contentsOf: Array(stroke.ink.inkType.rawValue.utf8))
+            let (r, g, b, a) = stroke.ink.color.rgba
+            for component in [Double(r), Double(g), Double(b), Double(a)] {
+                append(component)
+            }
+            var transform = stroke.transform
+            withUnsafeBytes(of: &transform) { data.append(contentsOf: $0) }
+            if let mask = stroke.mask {
+                data.append(1)
+                for v in [
+                    Double(mask.bounds.origin.x), Double(mask.bounds.origin.y),
+                    Double(mask.bounds.size.width), Double(mask.bounds.size.height),
+                ] {
+                    append(v)
+                }
+            } else {
+                data.append(0)
+            }
+            let path = stroke.path
+            var count = path.count
+            withUnsafeBytes(of: &count) { data.append(contentsOf: $0) }
+            for index in 0..<path.count {
+                let p = path.interpolatedPoint(at: CGFloat(index))
+                for v in [
+                    Double(p.location.x), Double(p.location.y),
+                    p.timeOffset,
+                    Double(p.size.width), Double(p.size.height),
+                    Double(p.opacity), Double(p.force),
+                    Double(p.azimuth), Double(p.altitude),
+                ] {
+                    append(v)
+                }
+            }
+        }
+        return LunaArchive.sha256Hex(data)
     }
 
     /// Export the first three units as independent resources (SPEC 3.1):
@@ -181,6 +281,8 @@ final class CanvasController: NSObject, ObservableObject {
                 originalData: nil, // baked bytes are new
                 previewData: DocumentExporter.makePreviewData(for: single),
                 hitData: DocumentExporter.makeHitData(for: single),
+                contentDigest: Self.contentDigest(of: single),
+                replacedObjectId: unit.replacedObjectId,
             )
         }
     }
@@ -234,6 +336,9 @@ final class CanvasController: NSObject, ObservableObject {
                     : nil,
                 previewData: DocumentExporter.makePreviewData(for: single),
                 hitData: DocumentExporter.makeHitData(for: single),
+                contentDigest: Self.contentDigest(of: single),
+                replacedObjectId: importedUnit.splitFrom
+                    .flatMap(UUID.init(uuidString:)),
             )
         }
     }

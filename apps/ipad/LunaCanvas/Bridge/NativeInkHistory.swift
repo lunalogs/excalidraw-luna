@@ -1,7 +1,9 @@
-// Native editing transactions + unified history closure (W09, N16/N17).
-// Wraps CanvasController snapshots into exactly-one undoable commands and
-// emits typed bridge payloads for the web side. cancel() rolls a
-// transaction back without touching history or emitting anything.
+// Native editing transactions routed through THE document coordinator
+// (W09, 0047-R5; N16/N17). Transactions commit as single entries in the
+// shared ordered DocumentHistory (ink + graphics + web in one stack);
+// cancel() rolls a transaction back without touching history or emitting
+// anything. `emittedPayloads` carries the bridge payloads for the web
+// side — actual bridge transmission is the shell's job (R1 wiring).
 
 import Foundation
 import PencilKit
@@ -25,14 +27,27 @@ final class NativeInkHistory {
         let payload: [InkObjectDescriptor]
     }
 
-    private(set) var undoStack: [Command] = []
-    private(set) var redoStack: [Command] = []
+    /// Box for the current unit list: entry closures capture it, so undo
+    /// and redo of ANY entry (ink/graphics/web) mutate one shared state.
+    final class UnitState {
+        var units: [CanvasController.InkUnit] = []
+    }
+
+    /// THE document history — graphics and web commands are recorded into
+    /// the same coordinator by their owners (ShellViewModel in R1 wiring).
+    let coordinator: DocumentHistory
+    private let state: UnitState
     private(set) var emittedPayloads: [[InkObjectDescriptor]] = []
 
     private var openSnapshot: [CanvasController.InkUnit]?
     private var openLabel = ""
 
-    init() {}
+    var units: [CanvasController.InkUnit] { state.units }
+
+    init(coordinator: DocumentHistory = DocumentHistory()) {
+        self.coordinator = coordinator
+        self.state = UnitState()
+    }
 
     var hasOpenTransaction: Bool { openSnapshot != nil }
 
@@ -46,9 +61,10 @@ final class NativeInkHistory {
         openLabel = label
     }
 
-    /// Commits the current canvas state as one command. `units` is the
-    /// post-edit unit list; identity/version replacement (new ids for
-    /// modified strokes) already happened in updateUnits.
+    /// Commits the current canvas state as ONE entry in the shared
+    /// document stack. `units` is the post-edit unit list; identity/
+    /// version replacement (new ids for modified strokes) already happened
+    /// in updateUnits.
     func commit(
         label: String? = nil,
         units: [CanvasController.InkUnit],
@@ -70,8 +86,16 @@ final class NativeInkHistory {
                 )
             },
         )
-        undoStack.append(command)
-        redoStack = []
+        let box = state
+        coordinator.record(
+            DocumentHistoryEntry(
+                kind: .ink,
+                label: command.label,
+                undo: { [weak box] in box?.units = command.before },
+                redo: { [weak box] in box?.units = command.after },
+            )
+        )
+        state.units = units
         if emit {
             emittedPayloads.append(command.payload)
         }
@@ -85,21 +109,24 @@ final class NativeInkHistory {
         openSnapshot = nil
     }
 
+    /// Undo through THE document coordinator: whichever subsystem made
+    /// the most recent command (ink, graphics, web) is undone first. Ink
+    /// state is copied back through the inout for the caller's canvas.
+    @discardableResult
     func undo(
         units: inout [CanvasController.InkUnit],
     ) -> Bool {
-        guard let command = undoStack.popLast() else { return false }
-        units = command.before
-        redoStack.append(command)
+        guard coordinator.undo() != nil else { return false }
+        units = state.units
         return true
     }
 
+    @discardableResult
     func redo(
         units: inout [CanvasController.InkUnit],
     ) -> Bool {
-        guard let command = redoStack.popLast() else { return false }
-        units = command.after
-        undoStack.append(command)
+        guard coordinator.redo() != nil else { return false }
+        units = state.units
         return true
     }
 }
