@@ -255,6 +255,8 @@ export const STRING_MIME_TYPES = {
   excalidrawClipboard: "application/vnd.excalidraw.clipboard+json",
   // LEGACY: fully-qualified library JSON data
   excalidrawlib: "application/vnd.excalidrawlib+json",
+  // hybrid native-ink document (ZIP container)
+  lunacanvas: "application/vnd.lunacanvas+zip",
   // list of excalidraw library item ids
   excalidrawlibIds: "application/vnd.excalidrawlib.ids+json",
 } as const;

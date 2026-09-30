@@ -445,6 +445,8 @@ import { getShortcutKey } from "../shortcut";
 
 import { tryParseSpreadsheet } from "../charts";
 
+import { LunacanvasInkOverlay } from "../lunacanvas/LunacanvasInkOverlay";
+
 import { ShapePreviewTrail } from "./ShapePreviewTrail";
 import { handwritingRestoreAtom } from "./HandwritingShapeCommit";
 
@@ -2448,6 +2450,9 @@ class App extends React.Component<AppProps, AppState> {
                               onDisconnect={this.maybeUnfollowRemoteUser}
                             />
                           )}
+                          {/* 0049-R1: native-ink layer above the graphics
+                          canvases (layerStrategy "ink-above-graphics") */}
+                          <LunacanvasInkOverlay appState={this.state} />
                           {this.renderFrameNames()}
                           {this.state.activeLockedId && (
                             <UnlockPopup
@@ -12286,6 +12291,27 @@ class App extends React.Component<AppProps, AppState> {
 
     if (fileItems.length === 1) {
       const { file, fileHandle } = fileItems[0];
+
+      // 0049-R1: drop a hybrid .lunacanvas document straight into the
+      // editor (scene + ink overlay via loadFromBlob)
+      if (file?.name?.endsWith(".lunacanvas")) {
+        const scene = await loadFromBlob(
+          file,
+          this.state,
+          this.scene.getElementsIncludingDeleted(),
+          fileHandle,
+        );
+        this.syncActionResult({
+          ...scene,
+          appState: {
+            ...(scene.appState || this.state),
+            isLoading: false,
+          },
+          replaceFiles: true,
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+        });
+        return;
+      }
 
       if (
         file &&

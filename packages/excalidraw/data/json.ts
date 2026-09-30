@@ -11,6 +11,11 @@ import type { MaybePromise } from "@excalidraw/common/utility-types";
 
 import { cleanAppStateForExport, clearAppStateForDatabase } from "../appState";
 
+import {
+  getLunacanvasDocument,
+  saveLunacanvasFromEditor,
+} from "../lunacanvas/hostStore";
+
 import { isImageFileHandle, loadFromBlob } from "./blob";
 import { fileOpen, fileSave } from "./filesystem";
 
@@ -83,17 +88,40 @@ export const saveAsJSON = async ({
   filename: string;
   fileHandle: AppState["fileHandle"];
 }) => {
-  const blob = Promise.resolve(data).then(({ elements, appState, files }) => {
-    const serialized = serializeAsJSON(elements, appState, files, "local");
-    return new Blob([serialized], {
-      type: MIME_TYPES.excalidraw,
-    });
-  });
+  // 0049-R1: with an active .lunacanvas document the save path writes a
+  // regenerated hybrid container (scene + edited ink + verbatim
+  // resources) instead of a plain .excalidraw JSON.
+  const lunacanvasActive = !!getLunacanvasDocument();
+  const blob = Promise.resolve(data).then(
+    async ({ elements, appState, files }) => {
+      const serialized = serializeAsJSON(elements, appState, files, "local");
+      if (lunacanvasActive) {
+        const scene = JSON.parse(serialized) as Record<string, unknown>;
+        const bytes = await saveLunacanvasFromEditor(scene);
+        if (bytes) {
+          return new Blob(
+            [
+              bytes.buffer.slice(
+                bytes.byteOffset,
+                bytes.byteOffset + bytes.byteLength,
+              ) as ArrayBuffer,
+            ],
+            {
+              type: MIME_TYPES.lunacanvas,
+            },
+          );
+        }
+      }
+      return new Blob([serialized], {
+        type: MIME_TYPES.excalidraw,
+      });
+    },
+  );
 
   const savedFileHandle = await fileSave(blob, {
     name: filename,
-    extension: "excalidraw",
-    description: "Excalidraw file",
+    extension: lunacanvasActive ? "lunacanvas" : "excalidraw",
+    description: lunacanvasActive ? "LunaCanvas document" : "Excalidraw file",
     fileHandle: isImageFileHandle(fileHandle) ? null : fileHandle,
   });
   return { fileHandle: savedFileHandle };

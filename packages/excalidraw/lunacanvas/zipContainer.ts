@@ -7,9 +7,10 @@
  * read path independently enforces per-entry/total byte budgets on the
  * decompressed bytes — budgets are never "trusted from a test stub".
  * Hashing goes through Web Crypto by default (see container.ts).
+ *
+ * jszip is imported DYNAMICALLY so the main editor bundle does not grow
+ * by ~100kB for a format most sessions never touch.
  */
-
-import JSZip from "jszip";
 
 import {
   ContainerBudgetError,
@@ -26,23 +27,24 @@ export interface OpenedLunacanvasContainer {
   readEntry: (path: string) => Promise<Uint8Array>;
 }
 
-const zipEntrySize = (entry: JSZip.JSZipObject): number => {
+const zipEntrySize = (entry: {
+  name: string;
   // jszip keeps the central-directory size on the internal record; when
   // it is unavailable (generated in-memory entries) the read-path byte
   // budgets below still bound real memory.
-  const internal = entry as unknown as {
-    _data?: { uncompressedSize?: number };
-  };
-  return typeof internal._data?.uncompressedSize === "number"
-    ? internal._data.uncompressedSize
+  _data?: { uncompressedSize?: number };
+}): number =>
+  typeof entry._data?.uncompressedSize === "number"
+    ? entry._data.uncompressedSize
     : 0;
-};
 
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
 export const openLunacanvasContainer = async (
   data: ArrayBuffer | Uint8Array,
   options: { hashBytes?: (bytes: Uint8Array) => Promise<string> } = {},
 ): Promise<OpenedLunacanvasContainer> => {
-  let zip: JSZip;
+  const JSZip = (await import("jszip")).default;
+  let zip: InstanceType<typeof JSZip>;
   try {
     zip = await JSZip.loadAsync(data);
   } catch {
@@ -53,8 +55,8 @@ export const openLunacanvasContainer = async (
     };
   }
 
-  const files = new Map<string, JSZip.JSZipObject>();
-  const entries = Object.values(zip.files)
+  const files = new Map<string, import("jszip").JSZipObject>();
+  const entries = (Object.values(zip.files) as import("jszip").JSZipObject[])
     .filter((file) => !file.dir)
     .map((file) => {
       files.set(file.name, file);

@@ -18,7 +18,7 @@
  * document over a sampling error.
  */
 
-import { useMemo } from "react";
+import { useMemo, type PointerEvent as ReactPointerEvent } from "react";
 
 import type { InkObject } from "./inkModel";
 
@@ -163,6 +163,9 @@ export interface InkLayerProps {
     x: number;
     y: number;
   }) => readonly [number, number];
+  /** drag/tracking hook: fires before selection on every img
+   * pointerdown (the host decides whether a drag begins) */
+  onObjectPointerDown?: (ink: InkObject, event: ReactPointerEvent) => void;
 }
 
 export const InkLayer = ({
@@ -173,6 +176,7 @@ export const InkLayer = ({
   onSelectObject,
   alphaSampler,
   toScene,
+  onObjectPointerDown,
 }: InkLayerProps) => {
   const visible = useMemo(
     () => objects.filter((o) => !o.deleted && o.previewUrl),
@@ -212,6 +216,7 @@ export const InkLayer = ({
               userSelect: "none",
             }}
             onPointerDown={(event) => {
+              onObjectPointerDown?.(ink, event);
               if (!onSelectObject) {
                 return;
               }

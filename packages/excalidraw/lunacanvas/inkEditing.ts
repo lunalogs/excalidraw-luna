@@ -128,6 +128,9 @@ export class InkEditingController {
         transform: moveTransform(ink.transform, dx, dy),
       });
     }
+    if (edits.length === 0) {
+      return { ok: true, objects: this.objects };
+    }
     const result = applyAll(this.objects, edits);
     if (!result.ok) {
       return result;
@@ -155,11 +158,37 @@ export class InkEditingController {
         transform: scaleTransform(ink.transform, factor, anchor),
       });
     }
+    if (edits.length === 0) {
+      return { ok: true, objects: this.objects };
+    }
     const result = applyAll(this.objects, edits);
     if (!result.ok) {
       return result;
     }
     return this.commit("scale-ink", result.objects);
+  }
+
+  /**
+   * Whole-object delete (N13/N15): the selected objects are marked
+   * deleted — ONE history entry, one undo restores all. Resource
+   * lifecycle (dropping their entries) happens at save time.
+   */
+  deleteSelection(ids: ReadonlySet<string>): ControllerResult {
+    const edits: InkEdit[] = [];
+    for (const ink of this.objects) {
+      if (!ids.has(ink.objectId) || ink.deleted) {
+        continue;
+      }
+      edits.push({ kind: "delete", objectId: ink.objectId });
+    }
+    if (edits.length === 0) {
+      return { ok: true, objects: this.objects };
+    }
+    const result = applyAll(this.objects, edits);
+    if (!result.ok) {
+      return result;
+    }
+    return this.commit("delete-ink", result.objects);
   }
 
   /**

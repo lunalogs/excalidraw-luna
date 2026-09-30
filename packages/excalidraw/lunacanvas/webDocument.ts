@@ -12,8 +12,6 @@
  * delete transaction), and unknown manifest/inkObject extensions survive.
  */
 
-import JSZip from "jszip";
-
 import { defaultHashBytes } from "./container";
 import { openLunacanvasContainer } from "./zipContainer";
 import {
@@ -70,20 +68,21 @@ export const openLunacanvasDocument = async (
       hitBytes ? JSON.parse(new TextDecoder().decode(hitBytes)) : null
     ) as (InkHitGeometry & { type?: string }) | null;
     let previewUrl: string | null = null;
-    if (
-      entry.previewRef &&
-      typeof URL !== "undefined" &&
-      URL.createObjectURL
-    ) {
-      const previewBytes = await opened.readEntry(entry.previewRef);
-      previewUrl = URL.createObjectURL(
-        new Blob([
-          previewBytes.buffer.slice(
-            previewBytes.byteOffset,
-            previewBytes.byteOffset + previewBytes.byteLength,
-          ) as ArrayBuffer,
-        ]),
-      );
+    if (entry.previewRef && typeof URL !== "undefined" && URL.createObjectURL) {
+      try {
+        const previewBytes = await opened.readEntry(entry.previewRef);
+        previewUrl = URL.createObjectURL(
+          new Blob([
+            previewBytes.buffer.slice(
+              previewBytes.byteOffset,
+              previewBytes.byteOffset + previewBytes.byteLength,
+            ) as ArrayBuffer,
+          ]),
+        );
+      } catch {
+        // blob URLs are best-effort display hints — never block opening
+        previewUrl = null;
+      }
     }
     objects.push(
       parseInkObject(
@@ -163,6 +162,8 @@ const encoder = new TextEncoder();
 export const saveLunacanvasDocument = async (
   input: SaveLunacanvasInput,
 ): Promise<Uint8Array> => {
+  // dynamic import: keep jszip out of the main editor bundle
+  const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
   const resourceTable: { path: string; sha256: string; byteSize: number }[] =
     [];

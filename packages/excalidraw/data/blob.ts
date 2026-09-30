@@ -16,7 +16,13 @@ import { CanvasError, ImageSceneDataError } from "../errors";
 import { calculateScrollCenter } from "../scene";
 import { decodeSvgBase64Payload } from "../scene/export";
 
+import {
+  closeLunacanvasDocument,
+  openLunacanvasInEditor,
+} from "../lunacanvas/hostStore";
+
 import { base64ToString, stringToBase64, toByteString } from "./encode";
+
 import { nativeFileSystemSupported } from "./filesystem";
 import { isValidExcalidrawData, isValidLibrary } from "./json";
 import {
@@ -25,7 +31,7 @@ import {
   restoreLibraryItems,
 } from "./restore";
 
-import type { AppState, DataURL, LibraryItem } from "../types";
+import type { AppState, BinaryFiles, DataURL, LibraryItem } from "../types";
 
 import type { ImportedLibraryData } from "./types";
 
@@ -143,6 +149,39 @@ export const loadSceneOrLibraryFromBlob = async (
   /** FileSystemFileHandle. Defaults to `blob.handle` if defined, otherwise null. */
   fileHandle?: FileSystemFileHandle | null,
 ) => {
+  // 0049-R1: hybrid .lunacanvas documents open through the real ZIP
+  // adapter — scene into the editor, ink objects into the ink overlay.
+  if (blob.name?.endsWith(".lunacanvas")) {
+    const { scene } = await openLunacanvasInEditor(
+      new Uint8Array(await blobToArrayBuffer(blob)),
+    );
+    const sceneElements = (scene.elements ||
+      []) as readonly ExcalidrawElement[];
+    const sceneAppState = (scene.appState || {}) as Record<string, unknown>;
+    return {
+      type: MIME_TYPES.excalidraw,
+      data: {
+        elements: restoreElements(sceneElements, localElements, {
+          repairBindings: true,
+          deleteInvisibleElements: true,
+        }),
+        appState: restoreAppState(
+          {
+            theme: localAppState?.theme,
+            fileHandle: fileHandle || blob.handle || null,
+            ...cleanAppStateForExport(sceneAppState),
+            ...(localAppState
+              ? calculateScrollCenter(sceneElements, localAppState)
+              : {}),
+          },
+          localAppState,
+        ),
+        files: (scene.files || {}) as BinaryFiles,
+      },
+    };
+  }
+  // opening anything else ends the hybrid session
+  closeLunacanvasDocument();
   const contents = await parseFileContents(blob);
   let data;
   try {
