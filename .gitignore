@@ -28,3 +28,4 @@ dev-dist
 html
 meta*.json
 .claude
+**/.build/
