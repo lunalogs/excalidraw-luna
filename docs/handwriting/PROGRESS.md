@@ -1,8 +1,8 @@
 # 进度与修改记录索引
 
-## 当前执行（0049 完成，2026-09-29）
+## 当前执行（0050 完成，2026-09-30）
 
-0044 R1–R7 全部落地（R7 证据修正归 0050）。R1 完成：原生 App 真实文档流程 + 网页宿主接线（.lunacanvas 经既有 loadFromBlob/saveAsJSON 正式入口、InkLayer 叠层 z-index 3、点选/拖拽/删除）+ **真实浏览器闭环证据**（拖放→矩形→拖墨迹→导出→校验 transform/scene/hash，CLOSED-LOOP OK，脚本 `evidence/0049-closed-loop.cjs`）。验证：网页 129 文件/1618 通过、原生 58/0、tsc/eslint/build 全绿。遗留（诚实清单见 0049 part2）：编辑器内图形↔墨迹撤销交错待原生桥接通；ShellView 未挂载运行 App。下一批 0050：R7 状态/候选构建/复核包修正。
+0044 R1–R7 **全部关闭**（记录 0045–0050，均已提交推送）。0050 完成证据修正：IMPLEMENTATION_STATUS 重写（N06 映射纠正、宿主接线状态、R1–R7 关闭表）、CODEX_REVIEW_PACKAGE 重写（提交链 SHA、浏览器闭环证据、yarn.lock 纯 registry 重写说明）、build-candidate.sh 硬化（无吞错/XCTest 写入器/排序相对路径树哈希/源码+原生 .app+xcodegen 实测哈希）——端到端跑通。剩余：真机验收（独立待验）、ShellView 挂载（下一里程碑）、W14 发布执行（待授权）。
 
 ## 当前Codex集中复核（0044，2026-09-29）
 

@@ -1,11 +1,19 @@
 {
-  "builtAt": "2026-09-30T00:02:08Z",
-  "xcode": "Xcode 27.0",
-  "sdk": "27.0",
+  "builtAt": "2026-10-01T02:02:07Z",
+  "source": {
+    "sha": "20b89df4a3654fb62962718ad2f91513d6ed4e2d",
+    "dirtyFiles": 3,
+    "branch": "luna-design"
+  },
+  "toolchain": {
+    "xcode": "Xcode 27.0",
+    "sdk": "27.0",
+    "xcodegenSha256": "8774da746668bc18fe74e54cbaf10f2631a1fb05947cd374179aa912f14f99db"
+  },
   "artifacts": {
-    "webBuildHash": "38e1c1be915c44afd3000b4271b93919a9cceb5b0e1d3a89f0b8b379a2eb2e90",
-    "fixtureHash": "db13c0f16ca7bf4bec4e30150850679a84f1b5805da66c664c37e83dff6212dc",
-    "xcodegenHash": "8774da746668bc18fe74e54cbaf10f2631a1fb05947cd374179aa912f14f99db"
+    "webBuildHash": "420729aecaaa0dd4099d4bebdb47eae990f1dbeb61ca75b1adeff61a84da8445",
+    "nativeAppHash": "a2b80ebf918002f4010d43bb5f6011a402e5d6ccb57b670bda86cbbd771164bd",
+    "fixtureHash": "ae50e1aa4edc6cc0c687d2e580007be63d7f41151a8e5b1f96b20797af4bf880"
   },
   "signing": "none (simulator); device signing left to the user"
 }
